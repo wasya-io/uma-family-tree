@@ -7,16 +7,50 @@
 - SK (JV_SK_SANKU)     産駒マスタ     … KettoNum, 3代血統の繁殖番号
 - BT (JV_BT_KEITO)     系統情報       … HansyokuNum, KeitoId, KeitoName
 
-JV-Data は各レコードが固定長バイト列で、レコード種別ID (先頭2バイト) で識別される。
-本モジュールは「生データファイル群 → 種別ごとのレコード dataclass 列」への変換を担う。
+各レコードは shift_jis (cp932) の固定長バイト列で、CR/LF 区切り。先頭2バイトがレコード種別ID。
 
-TODO: 実際の生データファイルの形式 (JV-Link のダンプ形式) を確認して読み込みを実装する。
-      オフセット/バイト長は JVData_Struct.py の SetDataB を参照して定義する。
+【重要】繁殖登録番号は 8 桁フォーマット
+  JVData_Struct.py (2026年版) は繁殖登録番号を 10 桁前提でオフセットを組んでいるが、
+  今回取得した実データ (HN=243バイト固定) は **8桁** フォーマットだった。そのため
+  HN/BT のオフセットは構造体仕様から 2 バイトずつ手前にずれる。以下のオフセットは
+  実データに対する参照整合性検証 (HN.FNum→HN.HansyokuNum が 100% 一致) で確定済み。
+
+  確定オフセット (1-based):
+    HN: HansyokuNum[12,8] KettoNum[28,10] Bamei[39,36] Kana[75,40] Eng[115,80]
+        BirthYear[195,4] SexCD[199,1] KeiroCD[201,2] FNum[228,8] MNum[236,8]
+    BT: HansyokuNum[12,8] KeitoId[22,?] KeitoName[50,36]
+    UM: KettoNum[12,10] BirthDate[39,8] Bamei[47,36] Kana[83,36] Eng[119,60]
+        SexCD[201,1] KeiroCD[203,2] Ketto3: base205, 要素stride44 (HansyokuNum8+名36)
+
+downloader が出力する input/{UM,HN,SK,BT}.dat を読み、種別ごとの dataclass 列へ変換する。
+UM.dat は数百MB あるため、全体を一度に読まず1レコードずつ処理する。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
+
+ENCODING = "cp932"
+
+
+def _s(b: bytes, start: int, length: int) -> str:
+    """JVData_Struct.py の MidB2S と同じ: 1-based start でバイト切出し → cp932 デコード → 前後空白除去。
+
+    JV-Data の文字列は全角/半角スペースで右詰めパディングされるため strip する。
+    """
+    raw = b[start - 1 : start - 1 + length]
+    return raw.decode(ENCODING, errors="ignore").strip("\u3000 \x00")
+
+
+def _year(b: bytes, start: int, length: int) -> int | None:
+    """4桁の年 (または YMD 先頭4桁) を int に。妥当でなければ None。"""
+    v = _s(b, start, length)
+    if len(v) >= 4 and v[:4].isdigit():
+        y = int(v[:4])
+        if 1700 <= y <= 2100:
+            return y
+    return None
 
 
 @dataclass
@@ -30,8 +64,28 @@ class UmaRecord:
     sex_cd: str = ""                   # 性別コード
     keiro_cd: str = ""                 # 毛色コード
     birth_year: int | None = None      # 生年 (生年月日から)
-    # 3代血統情報 (14頭ぶんの繁殖登録番号)。UM 単体で3代までは辿れる。
-    ketto3_hansyoku_nums: list[str] = field(default_factory=list)
+    # 父・母の繁殖登録番号 (Ketto3Info の先頭2頭 = 父[0], 母[1])。
+    father_hansyoku_num: str = ""
+    mother_hansyoku_num: str = ""
+
+    @classmethod
+    def parse(cls, b: bytes) -> "UmaRecord":
+        # Ketto3Info: 8桁フォーマットでは base=205、要素 stride=44 (HansyokuNum8 + Bamei36)。
+        # i=0 が父、i=1 が母。(実データで父名=213, 母名=257 を確認)
+        def ketto3_hansyoku(i: int) -> str:
+            return _s(b, 205 + 44 * i, 8)
+
+        return cls(
+            ketto_num=_s(b, 12, 10),
+            birth_year=_year(b, 39, 8),   # BirthDate YMD の先頭4桁
+            name=_s(b, 47, 36),
+            kana=_s(b, 83, 36),
+            eng=_s(b, 119, 60),
+            sex_cd=_s(b, 201, 1),
+            keiro_cd=_s(b, 203, 2),
+            father_hansyoku_num=ketto3_hansyoku(0),
+            mother_hansyoku_num=ketto3_hansyoku(1),
+        )
 
 
 @dataclass
@@ -49,6 +103,22 @@ class HansyokuRecord:
     father_hansyoku_num: str = ""      # 父馬繁殖登録番号 (HansyokuFNum)
     mother_hansyoku_num: str = ""      # 母馬繁殖登録番号 (HansyokuMNum)
 
+    @classmethod
+    def parse(cls, b: bytes) -> "HansyokuRecord":
+        # 8桁繁殖登録番号フォーマット。オフセットは実データで参照整合性検証済み。
+        return cls(
+            hansyoku_num=_s(b, 12, 8),
+            ketto_num=_s(b, 28, 10),
+            name=_s(b, 39, 36),
+            kana=_s(b, 75, 40),
+            eng=_s(b, 115, 80),
+            birth_year=_year(b, 195, 4),
+            sex_cd=_s(b, 199, 1),
+            keiro_cd=_s(b, 201, 2),
+            father_hansyoku_num=_s(b, 228, 8),
+            mother_hansyoku_num=_s(b, 236, 8),
+        )
+
 
 @dataclass
 class KeitoRecord:
@@ -58,24 +128,57 @@ class KeitoRecord:
     keito_id: str = ""                 # 系統ID (色分けキー)
     keito_name: str = ""               # 系統名
 
+    @classmethod
+    def parse(cls, b: bytes) -> "KeitoRecord":
+        # 8桁フォーマット。実データで KeitoId=22, KeitoName=50 と確認。
+        return cls(
+            hansyoku_num=_s(b, 12, 8),
+            keito_id=_s(b, 22, 28),
+            keito_name=_s(b, 50, 36),
+        )
+
 
 @dataclass
 class ParsedData:
     """パース結果の集約。graph 構築の入力になる。"""
 
-    uma: dict[str, UmaRecord] = field(default_factory=dict)          # key: ketto_num
+    uma: dict[str, UmaRecord] = field(default_factory=dict)            # key: ketto_num
     hansyoku: dict[str, HansyokuRecord] = field(default_factory=dict)  # key: hansyoku_num
-    keito: dict[str, KeitoRecord] = field(default_factory=dict)      # key: hansyoku_num
+    keito: dict[str, KeitoRecord] = field(default_factory=dict)        # key: hansyoku_num
+
+
+def _iter_records(path: Path):
+    """CR/LF 区切りの固定長レコードを1件ずつ bytes で返す。大容量ファイル向けに逐次処理。"""
+    if not path.exists():
+        return
+    with open(path, "rb") as f:
+        for line in f:
+            rec = line.rstrip(b"\r\n")
+            if len(rec) >= 2:
+                yield rec
 
 
 def parse_input(input_dir: str) -> ParsedData:
-    """生データディレクトリを読み、レコード種別ごとに dataclass 列へ変換する。
+    """生データディレクトリ (UM/HN/SK/BT.dat) を読み、ParsedData を構築する。
 
-    TODO: 実装。JV-Link ダンプ形式に応じて、
-      1. ファイル/ストリームを走査
-      2. 先頭のレコード種別ID (UM/HN/SK/BT) で分岐
-      3. JVData_Struct.py の SetDataB のオフセットに従って各フィールドを切り出す
-      4. ParsedData に格納
-    現状はスキャフォールドのため空を返す。
+    SK (産駒マスタ) は現状 UM/HN で血統を辿れるため未使用だが、将来の補完用に予約。
     """
-    raise NotImplementedError("生データのパースは実データ形式確認後に実装する")
+    d = Path(input_dir)
+    data = ParsedData()
+
+    for rec in _iter_records(d / "UM.dat"):
+        u = UmaRecord.parse(rec)
+        if u.ketto_num:
+            data.uma[u.ketto_num] = u
+
+    for rec in _iter_records(d / "HN.dat"):
+        h = HansyokuRecord.parse(rec)
+        if h.hansyoku_num:
+            data.hansyoku[h.hansyoku_num] = h
+
+    for rec in _iter_records(d / "BT.dat"):
+        k = KeitoRecord.parse(rec)
+        if k.hansyoku_num:
+            data.keito[k.hansyoku_num] = k
+
+    return data

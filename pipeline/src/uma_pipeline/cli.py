@@ -34,6 +34,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--founders", type=Path, default=None,
         help="全部盛り対象の始祖 KettoNum を1行1件で列挙したファイル (任意)",
     )
+    p.add_argument(
+        "--only", default=None,
+        help="この KettoNum または ノードid の馬ファイルだけを生成 (検証用)",
+    )
+    p.add_argument(
+        "--limit", type=int, default=None,
+        help="生成する馬ファイル数の上限 (安全弁。全件は数十万になるため)",
+    )
     return p
 
 
@@ -55,6 +63,8 @@ def run(args: argparse.Namespace) -> None:
         graph, args.output / "horses",
         ancestor_depth=args.ancestor_depth,
         descendant_depth=args.descendant_depth,
+        only=args.only,
+        limit=args.limit,
     )
     print(f"  馬ノードファイル {n} 件")
 
