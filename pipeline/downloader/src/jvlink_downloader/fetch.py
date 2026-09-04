@@ -19,14 +19,27 @@ from . import config
 
 
 def _load_jvlink():
-    """JVLink COM オブジェクトを生成する。Windows 以外では明確なエラーにする。"""
+    """JVLink COM オブジェクトを生成する。Windows 以外では明確なエラーにする。
+
+    JVGets は Byte Array の [in,out] や複数の [out] 引数を持つ複雑なシグネチャで、
+    遅延バインディング (Dispatch) だと型情報が無いため win32com のマーシャリングが
+    不安定になり、"SystemError: returned a result with an exception set" が発生する。
+    そこで **早期バインディング** (gencache.EnsureDispatch = makepy でタイプライブラリから
+    型情報を生成) を優先して使う。取得できない環境では Dispatch にフォールバックする。
+    """
     if sys.platform != "win32":
         raise RuntimeError(
             "JV-Link は Windows 専用です。この環境 (%s) では実行できません。" % sys.platform
         )
     import win32com.client  # type: ignore  # Windows のみ
 
-    return win32com.client.Dispatch("JVDTLab.JVLink")
+    try:
+        # 早期バインディング (型情報つき)。JVGets の out 引数マーシャリングが安定する。
+        return win32com.client.gencache.EnsureDispatch("JVDTLab.JVLink")
+    except Exception as e:  # noqa: BLE001
+        # タイプライブラリ生成に失敗した場合は遅延バインディングにフォールバック。
+        print(f"警告: 早期バインディングに失敗 ({e})。Dispatch にフォールバックします。")
+        return win32com.client.Dispatch("JVDTLab.JVLink")
 
 
 def _jvopen(jvlink, dataspec: str, fromtime: str, option: int):

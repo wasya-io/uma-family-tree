@@ -82,6 +82,23 @@ uv pip install -e .
 > `pipeline/downloader/pyproject.toml` は `pywin32` に依存する。
 > `pywin32` は Windows でのみインストール可能 (COM 操作に必要)。
 
+### 1-3b. COM バインディングについて (早期バインディング)
+
+本ツールは JVGets の out 引数を安定して扱うため、**早期バインディング**
+(`win32com.client.gencache.EnsureDispatch`) を使う。初回呼び出し時に JV-Link の
+タイプライブラリから型情報つきのキャッシュ (gen_py) が生成される。
+
+- もし `AttributeError` や生成キャッシュ絡みの不具合が出たら、gen_py キャッシュを削除して
+  再実行するとよい (次回自動再生成される):
+
+  ```powershell
+  # 例: ユーザーごとの gen_py キャッシュ場所
+  Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Temp\gen_py"
+  ```
+
+- 早期バインディングに失敗した場合は自動的に遅延バインディング (Dispatch) に
+  フォールバックする (安定性は落ちる)。
+
 ### 1-3. JV-Link のアーキテクチャ整合に関する注意
 
 - 本 SDK は **64bit 版** (`JRA-VAN Data Lab. SDK Ver5.0.0_64bit`)。
