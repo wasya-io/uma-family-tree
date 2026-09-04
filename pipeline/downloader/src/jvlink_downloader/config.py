@@ -41,5 +41,9 @@ FROMTIME_ALL = "00000000000000"
 # JVGets のバッファサイズ (サンプルに準拠)。
 BUFFER_SIZE = 110000
 
+# 何レコードごとに gc.collect() を呼ぶか。
+# win32com が JVGets のたびに溜め込む COM オブジェクトを定期回収し、メモリ枯渇を防ぐ。
+GC_INTERVAL = 1000
+
 # 生データの文字コード。JV-Data は cp932。
 ENCODING = "cp932"

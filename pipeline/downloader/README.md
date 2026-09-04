@@ -119,35 +119,52 @@ JRA-VAN の**利用キー (17桁の英数字)** が未設定だと、`JVOpen` �
 
 ## 2. 使い方 (1 クリック実行)
 
-`fetch.bat` をダブルクリックするだけ。内部で uv 経由の Python 取得スクリプトが走り、
-`pipeline/input/` に生データを書き出す。
+`setup.bat` をダブルクリックするだけ。内部で `DIFF` と `BLOD` を **別々のプロセス**で
+順に取得し、`pipeline/input/` に生データを書き出す。
 
 ```
-pipeline/downloader/fetch.bat
+pipeline/downloader/setup.bat
 ```
 
-`fetch.bat` は以下と等価:
+`setup.bat` は以下と等価:
 
 ```powershell
-uv run jvlink-fetch --out ..\input --fromtime 00000000000000
+uv run jvlink-fetch --out ..\input --dataspec DIFF --fromtime 00000000000000 --option 4
+uv run jvlink-fetch --out ..\input --dataspec BLOD --fromtime 00000000000000 --option 4
 ```
+
+### なぜ DIFF と BLOD を分けるのか (メモリ対策)
+
+`DIFFBLOD` を 1 プロセスで一括取得すると、win32com が JVGets 呼び出しごとに COM
+オブジェクトを溜め込み、フル・セットアップ (数百万レコード) の途中で `MemoryError`
+になる (実機で 524 ファイル中 244 ファイル目付近で発生を確認)。
+
+対策:
+- **データ種別を 2 プロセスに分割**する。プロセスが終了すれば OS が COM メモリを完全に
+  回収するため、次のプロセスはクリーンな状態で始められる。
+- 各プロセス内でも `config.GC_INTERVAL` 件ごとに `gc.collect()` を呼び、蓄積を抑える。
+
+> それでも BLOD 単独で落ちる場合は、`--fromtime` に期間を指定して取得を分割する
+> (例: 年ごと)。その際は 2 回目以降に `--append` を付けて既存 .dat に継ぎ足す。
 
 ### オプション
 
 | 引数 | 意味 | 既定 |
 |---|---|---|
 | `--out` | 生データ出力先 | `..\input` |
-| `--fromtime` | 取得開始日時 (YYYYMMDDhhmmss)。空/0 は全期間 (セットアップ) | `00000000000000` |
-| `--option` | JVOpen option (1=通常, 3=セットアップ) | `3` |
-| `--dataspec` | 取得データ種別を上書き (既定は config.py の DATASPEC) | config 値 |
+| `--dataspec` | 取得データ種別 (4桁×n)。`DIFF` / `BLOD` を個別指定推奨 | config 値 (`DIFFBLOD`) |
+| `--fromtime` | 取得開始日時 (YYYYMMDDhhmmss)。0 は全期間 | `00000000000000` |
+| `--option` | JVOpen option (1=通常, 3/4=セットアップ) | `3` |
+| `--append` | 既存 .dat に追記 (既定は上書き) | off |
 
-> 初回は `--option 3` (セットアップデータ) で全件取得、以降は `--option 1` + 前回の
-> lastfiletime を `--fromtime` に渡して差分取得、という運用が一般的。
+> 初回は `--option 4` (ダイアログ無しセットアップ) で全件取得、以降は `--option 1` +
+> 前回の `lastfiletime.txt` の値を `--fromtime` に渡して差分取得、という運用が一般的。
 
 ---
 
 ## 3. 現状
 
-雛形。JV-Link API 呼び出し (JVInit/JVOpen/JVStatus/JVGets/JVClose) の流れは
-SDK の Python サンプル (`Form1.py` / `Form2.py`) に準拠して実装済み。
-実機 (JV-Link 登録済み Windows) での疎通確認は未実施 (この開発環境は Mac のため)。
+JV-Link API 呼び出し (JVInit/JVOpen/JVStatus/JVGets/JVClose) の流れは SDK の Python
+サンプル (`Form1.py` / `Form2.py`) に準拠。DIFF (UM) の取得は実機で成功を確認済み。
+BLOD (HN/SK/BT) を含むフル取得は、win32com のメモリ蓄積対策として **DIFF/BLOD を
+分割実行**する方式に変更した (実機での完走確認は継続中)。

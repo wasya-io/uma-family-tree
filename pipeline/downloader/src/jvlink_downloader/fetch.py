@@ -10,6 +10,7 @@ JVGets → JVClose の流れを、GUI なしの CLI に移植したもの。
 from __future__ import annotations
 
 import argparse
+import gc
 import sys
 import time
 from pathlib import Path
@@ -59,11 +60,17 @@ def _wait_download(jvlink, download_count: int) -> None:
 
 
 class _RecordWriter:
-    """レコード種別 (先頭2バイト) ごとに出力ファイルへ振り分けて書き出す。"""
+    """レコード種別 (先頭2バイト) ごとに出力ファイルへ振り分けて書き出す。
 
-    def __init__(self, out_dir: Path):
+    append=False (既定) は上書き (wb)。データ種別を分割して複数回実行する場合、
+    2回目以降は別のレコード種別を書くので上書きでも衝突しないが、同じレコード種別を
+    追記したいときは append=True (ab) を使う。
+    """
+
+    def __init__(self, out_dir: Path, append: bool = False):
         self.out_dir = out_dir
         self.out_dir.mkdir(parents=True, exist_ok=True)
+        self._mode = "ab" if append else "wb"
         self._handles: dict[str, object] = {}
         self.counts: dict[str, int] = {}
 
@@ -71,12 +78,12 @@ class _RecordWriter:
         if len(raw) < 2:
             return
         rectype = raw[:2].decode(config.ENCODING, errors="replace")
-        # 血統可視化に不要なレコード種別 (DIFF に含まれる RA/SE/オッズ等) は捨てる。
+        # 血統可視化に不要なレコード種別 (RA/SE/オッズ等) は捨てる。
         if config.KEEP_RECORD_TYPES and rectype not in config.KEEP_RECORD_TYPES:
             return
         fh = self._handles.get(rectype)
         if fh is None:
-            fh = open(self.out_dir / f"{rectype}.dat", "wb")
+            fh = open(self.out_dir / f"{rectype}.dat", self._mode)
             self._handles[rectype] = fh
             self.counts[rectype] = 0
         fh.write(raw)  # type: ignore[attr-defined]
@@ -97,6 +104,7 @@ def _read_all(jvlink, writer: _RecordWriter, read_count: int) -> None:
       - フル・セットアップは数百万レコードに及ぶため、これを怠るとメモリが枯渇する。
     """
     readed = 0
+    records = 0
     buff = bytearray(config.BUFFER_SIZE)
     while True:
         buffname = bytearray()
@@ -106,18 +114,26 @@ def _read_all(jvlink, writer: _RecordWriter, read_count: int) -> None:
             # memoryview の内容を即コピーして書き出し、memview 参照はすぐ捨てる。
             writer.write(bytes(memview[:ret]))
             memview = None
+            records += 1
+            # win32com が JVGets 呼び出しごとに溜め込む COM オブジェクトを定期的に回収する。
+            # (これをしないと数百万レコードでメモリが枯渇し MemoryError になる)
+            if records % config.GC_INTERVAL == 0:
+                gc.collect()
+                print(f"  読込み {records} 件 処理中...", end="\r", flush=True)
         elif ret == -1:
             readed += 1
             if read_count:
                 print(f"  読込み中... ({readed}/{read_count})", end="\r", flush=True)
         elif ret == 0:
-            print("\n  読込み完了")
+            print(f"\n  読込み完了 (レコード {records} 件)")
             break
         else:
             raise RuntimeError(f"JVGets エラー: {ret}")
 
 
-def fetch(out_dir: Path, dataspec: str, fromtime: str, option: int) -> dict[str, int]:
+def fetch(
+    out_dir: Path, dataspec: str, fromtime: str, option: int, append: bool = False
+) -> dict[str, int]:
     """一括ダウンロードを実行し、レコード種別ごとの件数を返す。"""
     jvlink = _load_jvlink()
 
@@ -153,7 +169,7 @@ def fetch(out_dir: Path, dataspec: str, fromtime: str, option: int) -> dict[str,
 
         _wait_download(jvlink, download_count)
 
-        writer = _RecordWriter(out_dir)
+        writer = _RecordWriter(out_dir, append=append)
         try:
             _read_all(jvlink, writer, read_count)
         finally:
@@ -177,15 +193,23 @@ def build_arg_parser() -> argparse.ArgumentParser:
         description="JV-Link から血統可視化用の蓄積系データを一括ダウンロードする (Windows 専用)",
     )
     p.add_argument("--out", type=Path, default=Path("..") / "input", help="生データ出力先")
-    p.add_argument("--dataspec", default=config.DATASPEC, help="取得データ種別 (既定: config.DATASPEC)")
+    p.add_argument(
+        "--dataspec", default=config.DATASPEC,
+        help="取得データ種別 (既定: config.DATASPEC)。メモリ対策で 'DIFF' と 'BLOD' に分けて "
+             "別プロセスで実行するのを推奨 (fetch.bat 参照)。",
+    )
     p.add_argument("--fromtime", default=config.FROMTIME_ALL, help="取得開始日時 YYYYMMDDhhmmss")
-    p.add_argument("--option", type=int, default=config.DEFAULT_OPTION, help="JVOpen option (1/2/3)")
+    p.add_argument("--option", type=int, default=config.DEFAULT_OPTION, help="JVOpen option (1/2/3/4)")
+    p.add_argument(
+        "--append", action="store_true",
+        help="既存の .dat に追記する (既定は上書き)。分割実行で同じレコード種別を継ぎ足す場合に使う。",
+    )
     return p
 
 
 def main() -> None:
     args = build_arg_parser().parse_args()
-    counts = fetch(args.out, args.dataspec, args.fromtime, args.option)
+    counts = fetch(args.out, args.dataspec, args.fromtime, args.option, append=args.append)
     if counts:
         print("取得件数:")
         for rectype, n in sorted(counts.items()):
