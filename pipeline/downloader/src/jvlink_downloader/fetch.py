@@ -122,8 +122,21 @@ def fetch(out_dir: Path, dataspec: str, fromtime: str, option: int) -> dict[str,
         code, read_count, download_count, lastfiletime = _jvopen(
             jvlink, dataspec, fromtime, option
         )
+        # 切り分け用に JVOpen の戻り値を全て出す。
+        print(
+            f"JVOpen 戻り値: code={code} readcount={read_count} "
+            f"downloadcount={download_count} lastfiletimestamp='{lastfiletime}'"
+        )
         if code == -1:
-            print("該当データなし")
+            print(
+                "該当データなし (-1): 指定条件に合致する新しいデータがサーバに無い。\n"
+                "  切り分けのヒント:\n"
+                "   - readcount が 0 以外なら、ローカルに該当ファイルがある可能性。\n"
+                "   - option=1 で近い日付を fromtime に指定して通常データで試す:\n"
+                "       uv run jvlink-fetch --option 1 --fromtime 20240101000000\n"
+                "   - JV-Link 設定 (利用キー) が未設定だと該当なしになることがある:\n"
+                "       uv run python -m jvlink_downloader.setup_ui"
+            )
             return {}
         if code != 0:
             raise RuntimeError(f"JVOpen エラー: {code}")
