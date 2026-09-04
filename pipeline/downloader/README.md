@@ -164,6 +164,28 @@ uv run jvlink-fetch --out ..\input --dataspec BLOD --fromtime 00000000000000 --o
 > それでも BLOD 単独で落ちる場合は、`--fromtime` に期間を指定して取得を分割する
 > (例: 年ごと)。その際は 2 回目以降に `--append` を付けて既存 .dat に継ぎ足す。
 
+#### BLOD が 1 プロセスで完走しない場合: 期間分割バッチ
+
+実機で BLOD を 1 プロセス取得すると、300〜365 ファイル付近で COM メモリ蓄積により
+OS ごと重くなる/フリーズすることを確認。対策として **期間で分割し、各期間を別プロセス**
+で取得する `setup_blod_split.bat` を用意した。
+
+```
+pipeline/downloader/setup_blod_split.bat
+```
+
+- `option=1` (通常データ) + `fromtime="開始-終了"` の期間指定で、1986〜現在を数年刻みに分割。
+- 1 チャンク目は上書き、以降は `--append` で `HN.dat`/`SK.dat`/`BT.dat` に継ぎ足す。
+- 各チャンクは別プロセスなので、終了ごとに OS が COM メモリを完全回収する。
+- 途中のチャンクで失敗しても、完了済みチャンクのデータは残る。失敗チャンクの期間を
+  さらに細かく割って再実行すればよい。
+
+> 期間分割で同一マスタが重複する可能性はあるが、pipeline 側はレコードを
+> KettoNum / HansyokuNum でキー付けするため、重複は上書きされ実害はない。
+
+DIFF (UM) は 1 プロセスで完走するため `setup.bat` の DIFF 部分をそのまま使う。
+つまり運用は「`setup.bat` の DIFF で UM → `setup_blod_split.bat` で HN/SK/BT」となる。
+
 ### オプション
 
 | 引数 | 意味 | 既定 |
