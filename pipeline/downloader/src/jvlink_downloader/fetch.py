@@ -94,6 +94,30 @@ class _RecordWriter:
             fh.close()  # type: ignore[attr-defined]
 
 
+def _extract_record(memview, buff: bytearray, ret: int) -> bytes | None:
+    """JVGets の結果からレコード ret バイトを取り出す。
+
+    win32com の JVGets は戻り値の形が環境・レコードで揺れる:
+      - memview (memoryview / bytes 相当) にデータが入る場合
+      - memview が None で、入力バッファ buff 側にデータが格納される場合
+    どちらでも先頭 ret バイトを取り出せるようにする。取り出せなければ None。
+    """
+    # 1) memview が使える場合はそれを優先。
+    if memview is not None:
+        try:
+            return bytes(memview[:ret])
+        except TypeError:
+            # memview がスライス不可の型 (稀) の場合は bytes 化を試す。
+            try:
+                return bytes(memview)[:ret]
+            except Exception:  # noqa: BLE001
+                pass
+    # 2) フォールバック: 入力バッファ buff の先頭 ret バイト。
+    if buff is not None and len(buff) >= ret:
+        return bytes(buff[:ret])
+    return None
+
+
 def _read_all(jvlink, writer: _RecordWriter, read_count: int) -> None:
     """JVGets ループ。ret>0=データ, -1=ファイル切替, 0=EOF, その他=エラー。
 
@@ -111,9 +135,13 @@ def _read_all(jvlink, writer: _RecordWriter, read_count: int) -> None:
         ret, memview, _fname = jvlink.JVGets(buff, config.BUFFER_SIZE, buffname)
         ret = int(ret)
         if ret > 0:
-            # memoryview の内容を即コピーして書き出し、memview 参照はすぐ捨てる。
-            writer.write(bytes(memview[:ret]))
+            # レコードデータを取り出す。JVGets は環境により、戻り値の memview に
+            # データを返す場合と、入力バッファ buff 側に格納する場合がある。
+            # memview が None のときは buff から読む (両対応で堅牢化)。
+            record = _extract_record(memview, buff, ret)
             memview = None
+            if record is not None:
+                writer.write(record)
             records += 1
             # win32com が JVGets 呼び出しごとに溜め込む COM オブジェクトを定期的に回収する。
             # (これをしないと数百万レコードでメモリが枯渇し MemoryError になる)
