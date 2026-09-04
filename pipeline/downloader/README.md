@@ -30,17 +30,25 @@ JV-Link (JRA-VAN Data Lab.) から血統可視化に必要な蓄積系データ�
 JVOpen に渡す **dataspec は「データ種別ID」で 4 桁固定**。上記の `UM`/`HN`/`SK`/`BT` は
 「レコード種別ID」(2桁) であり、dataspec に渡すものとは**別物**。
 
-JV-Data 仕様書「JVData データ種別一覧」より、上記4レコードはすべてデータ種別ID
-**`DIFF`** (蓄積系ソフト用 蓄積情報) に含まれる。よって JVOpen には `"DIFF"` を渡す。
-取得後、各レコードの先頭2バイト (レコード種別ID) で `UM.dat` / `HN.dat` / `SK.dat` /
-`BT.dat` に振り分ける。`DIFF` に含まれる血統以外のレコード (RA/SE/オッズ等) は
-`config.KEEP_RECORD_TYPES` により除外する。
+JV-Data 仕様書「JVData データ種別一覧」より、必要なレコードの所属データ種別は分かれている:
 
-> 過去に `"UMHNSKBT"` のようにレコード種別IDを連結すると `JVOpen エラー -111`
-> (dataspec パラメータが不正) になる。これは誤り。正しくは `"DIFF"`。
-> なお 2023-08-08 以降の10桁繁殖登録番号拡張データは `"DIFN"` で提供される。
+| レコード種別 | 所属データ種別ID |
+|---|---|
+| UM 競走馬マスタ | `DIFF` (蓄積系ソフト用 蓄積情報) |
+| HN 繁殖馬マスタ | `BLOD` (蓄積系ソフト用 **血統情報**) |
+| SK 産駒マスタ | `BLOD` |
+| BT 系統情報 | `BLOD` |
 
-`config.py` の `DATASPEC`(既定 `"DIFF"`)で指定する。
+血統情報 (HN/SK/BT) は `DIFF` ではなく `BLOD` にある。よって JVOpen には両方を連結した
+**`"DIFFBLOD"`** (8桁 = 4の倍数) を渡す。取得後、各レコードの先頭2バイト (レコード種別ID) で
+`UM.dat` / `HN.dat` / `SK.dat` / `BT.dat` に振り分け、不要レコードは `config.KEEP_RECORD_TYPES`
+で除外する。
+
+> - `"UMHNSKBT"` のようにレコード種別IDを連結すると `JVOpen -111` (dataspec 不正) になる。
+> - `"DIFF"` だけだと UM しか取れず HN/SK/BT が欠ける (血統情報は BLOD のため)。
+> - 2023-08-08 以降の10桁繁殖登録番号拡張データは `"DIFNBLDN"` で提供される。
+
+`config.py` の `DATASPEC`(既定 `"DIFFBLOD"`)で指定する。
 
 ---
 
