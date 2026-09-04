@@ -71,6 +71,9 @@ class _RecordWriter:
         if len(raw) < 2:
             return
         rectype = raw[:2].decode(config.ENCODING, errors="replace")
+        # 血統可視化に不要なレコード種別 (DIFF に含まれる RA/SE/オッズ等) は捨てる。
+        if config.KEEP_RECORD_TYPES and rectype not in config.KEEP_RECORD_TYPES:
+            return
         fh = self._handles.get(rectype)
         if fh is None:
             fh = open(self.out_dir / f"{rectype}.dat", "wb")
