@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Node / SvelteKit
+node_modules/
+.svelte-kit/
+build/
+.vercel/
+.wrangler/
+
+# pipeline データ (生データ・生成物はコミットしない)
+pipeline/input/
+pipeline/output/
+
+# JV-Link SDK 資料 (JRA-VAN 配布物: exe/msi/仕様書等。ライセンス上コミットしない)
+.refarence/
+
+# OS
+.DS_Store
+
+# env
+.env
+.env.*
+!.env.example

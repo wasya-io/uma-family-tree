@@ -1,0 +1,19 @@
+[project]
+name = "jvlink-downloader"
+version = "0.1.0"
+description = "JV-Link (JRA-VAN Data Lab.) 蓄積系データの一括ダウンローダ (Windows 専用)"
+requires-python = ">=3.11"
+# pywin32 は Windows でのみインストールされる (COM 操作に必須)。
+dependencies = [
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[project.scripts]
+jvlink-fetch = "jvlink_downloader.fetch:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
