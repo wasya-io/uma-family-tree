@@ -11,6 +11,7 @@ dependencies = [
 [project.scripts]
 jvlink-fetch = "jvlink_downloader.fetch:main"
 jvlink-setup = "jvlink_downloader.setup_ui:main"
+jvlink-setkey = "jvlink_downloader.set_key:main"
 
 [build-system]
 requires = ["setuptools>=68"]
