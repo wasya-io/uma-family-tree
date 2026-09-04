@@ -88,15 +88,24 @@ class _RecordWriter:
 
 
 def _read_all(jvlink, writer: _RecordWriter, read_count: int) -> None:
-    """JVGets ループ。ret>0=データ, -1=ファイル切替, 0=EOF, その他=エラー。"""
+    """JVGets ループ。ret>0=データ, -1=ファイル切替, 0=EOF, その他=エラー。
+
+    メモリ対策:
+      - 入力バッファはループ外で1回だけ確保して使い回す (毎回 110KB を新規確保しない)。
+      - JVGets が返す memoryview は tobytes() でコピーした直後に参照を解放する
+        (COM 側 SAFEARRAY を溜め込まないため)。
+      - フル・セットアップは数百万レコードに及ぶため、これを怠るとメモリが枯渇する。
+    """
     readed = 0
+    buff = bytearray(config.BUFFER_SIZE)
     while True:
-        buff = bytearray(config.BUFFER_SIZE)
         buffname = bytearray()
         ret, memview, _fname = jvlink.JVGets(buff, config.BUFFER_SIZE, buffname)
         ret = int(ret)
         if ret > 0:
-            writer.write(memview.tobytes())
+            # memoryview の内容を即コピーして書き出し、memview 参照はすぐ捨てる。
+            writer.write(bytes(memview[:ret]))
+            memview = None
         elif ret == -1:
             readed += 1
             if read_count:
