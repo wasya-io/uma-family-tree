@@ -135,7 +135,7 @@ def fetch(out_dir: Path, dataspec: str, fromtime: str, option: int) -> dict[str,
                 "   - option=1 で近い日付を fromtime に指定して通常データで試す:\n"
                 "       uv run jvlink-fetch --option 1 --fromtime 20240101000000\n"
                 "   - JV-Link 設定 (利用キー) が未設定だと該当なしになることがある:\n"
-                "       uv run python -m jvlink_downloader.setup_ui"
+                "       uv run jvlink-setup"
             )
             return {}
         if code != 0:

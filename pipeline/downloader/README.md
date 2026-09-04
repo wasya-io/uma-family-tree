@@ -81,7 +81,7 @@ uv pip install -e .
 - JV-Link 本体 (`JVDTLab.JVLink`) が正しく登録・利用者登録 (JVSetUIProperties での設定) 済みであること。
   未登録だと `JVInit` / `JVOpen` がエラーコードを返す。
 - 初回は JV-Link の設定 (利用キー等) を済ませておく。設定 UI は
-  `python -m jvlink_downloader.setup_ui` で開ける (JVSetUIProperties を呼ぶだけの補助)。
+  `uv run jvlink-setup` で開ける (JVSetUIProperties を呼ぶだけの補助)。
 
 ---
 
