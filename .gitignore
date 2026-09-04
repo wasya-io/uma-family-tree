@@ -16,6 +16,11 @@ build/
 pipeline/input/
 pipeline/output/
 
+# viewer に配置する JRA-VAN 由来の配信データ (ローカル確認用。コミットしない)
+viewer/static/horses/
+viewer/static/keito-master.json
+viewer/static/search-index.json
+
 # JV-Link SDK 資料 (JRA-VAN 配布物: exe/msi/仕様書等。ライセンス上コミットしない)
 .refarence/
 

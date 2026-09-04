@@ -20,7 +20,7 @@
 		}
 	}
 
-	// カナ + 英字のインクリメンタルサーチ (前方一致 + 部分一致)。
+	// 馬名 (漢字/カナ) + 英字のインクリメンタルサーチ (部分一致)。
 	$: results = matchResults(query, index);
 
 	function matchResults(q: string, entries: SearchEntry[]): SearchEntry[] {
@@ -28,13 +28,16 @@
 		if (!t) return [];
 		return entries
 			.filter(
-				(e) => e.kana.toLowerCase().includes(t) || e.eng.toLowerCase().includes(t)
+				(e) =>
+					(e.name && e.name.toLowerCase().includes(t)) ||
+					(e.kana && e.kana.toLowerCase().includes(t)) ||
+					(e.eng && e.eng.toLowerCase().includes(t))
 			)
 			.slice(0, 20);
 	}
 
 	function select(entry: SearchEntry) {
-		query = entry.kana || entry.eng;
+		query = entry.name || entry.kana || entry.eng;
 		onSelect(entry.id);
 	}
 </script>
@@ -54,7 +57,7 @@
 			{#each results as r (r.id)}
 				<li>
 					<button type="button" on:click={() => select(r)}>
-						{r.kana}{#if r.eng}<span class="eng"> {r.eng}</span>{/if}
+						{r.name || r.kana}{#if r.eng}<span class="eng"> {r.eng}</span>{/if}
 					</button>
 				</li>
 			{/each}

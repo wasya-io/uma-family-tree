@@ -2,8 +2,10 @@
 
 /** 馬ノード (horses/{id}.json / full/{id}.json の nodes 要素)。 */
 export interface HorseNode {
-	/** 一意キー (原則 KettoNum 10桁)。 */
+	/** 一意キー ("H" + 繁殖登録番号)。ファイル名・中心切替に使う。 */
 	id: string;
+	/** 血統登録番号 (競走馬のみ。輸入種牡馬等は空)。検索/表示の補助。 */
+	kettoNum: string;
 	name: string;
 	kana: string;
 	eng: string;
@@ -37,7 +39,9 @@ export interface HorseGraph {
 
 /** 検索インデックス (search-index.json) の要素。 */
 export interface SearchEntry {
+	/** ノード id ("H" + 繁殖登録番号)。中心指定に使う。 */
 	id: string;
+	name: string;
 	kana: string;
 	eng: string;
 }
