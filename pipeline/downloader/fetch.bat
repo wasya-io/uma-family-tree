@@ -1,17 +1,17 @@
 @echo off
 rem ========================================================================
-rem  JV-Link 一括ダウンロード (1 クリック実行)
-rem  このバッチを置いたフォルダ (pipeline\downloader) で uv 経由の
-rem  取得スクリプトを実行し、生データを pipeline\input へ書き出す。
+rem  JV-Link batch downloader (one-click)
+rem  Runs the uv-based fetch script from this folder and writes raw data
+rem  to pipeline\input.
 rem ========================================================================
 
-rem バッチ自身のフォルダへ移動 (どこから起動しても動くように)
+rem Move to this batch file's own folder (works regardless of launch dir)
 cd /d "%~dp0"
 
-rem uv 環境で取得スクリプトを実行。
-rem 初回はセットアップデータ全件 (option=3, fromtime=全期間)。
+rem Run the fetch script in the uv environment.
+rem First run: setup data, full period (option=3, fromtime=all zeros).
 uv run jvlink-fetch --out "..\input" --fromtime 00000000000000 --option 3
 
 echo.
-echo 完了しました。何かキーを押すと閉じます。
+echo Done. Press any key to close.
 pause >nul

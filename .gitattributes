@@ -1,0 +1,10 @@
+# Windows バッチ / PowerShell は CRLF を強制 (cmd がパースできるように)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# シェルスクリプトは LF
+*.sh text eol=lf
+
+# その他テキストは Git に自動判定させる
+* text=auto
