@@ -15,14 +15,31 @@ async function getJson<T>(path: string): Promise<T> {
 	return (await res.json()) as T;
 }
 
-/** 馬ノードファイル (中心馬の祖先M代+子孫L代サブグラフ)。 */
-export function fetchHorseGraph(kettoNum: string): Promise<HorseGraph> {
-	return getJson<HorseGraph>(`horses/${kettoNum}.json`);
+/**
+ * 馬ノードファイルを取得。存在しない (404) 場合は null を返す (エラーにしない)。
+ * データの無い馬を中心にしようとしても操作不能にならないようにするため。
+ */
+export async function fetchHorseGraph(id: string): Promise<HorseGraph | null> {
+	const res = await fetch(`${BASE}/horses/${id}.json`);
+	if (res.status === 404) return null;
+	if (!res.ok) throw new Error(`データ取得に失敗: horses/${id}.json (${res.status})`);
+	return (await res.json()) as HorseGraph;
+}
+
+/** 馬ノードファイルが存在するか (中心にできるかの判定用)。 */
+export async function horseExists(id: string): Promise<boolean> {
+	try {
+		// HEAD が使えれば軽い。static/R2 とも HEAD をサポートする。
+		const res = await fetch(`${BASE}/horses/${id}.json`, { method: 'HEAD' });
+		return res.ok;
+	} catch {
+		return false;
+	}
 }
 
 /** 全部盛りファイル (限定始祖の全子孫)。 */
-export function fetchFullGraph(kettoNum: string): Promise<HorseGraph> {
-	return getJson<HorseGraph>(`full/${kettoNum}.json`);
+export function fetchFullGraph(id: string): Promise<HorseGraph> {
+	return getJson<HorseGraph>(`full/${id}.json`);
 }
 
 /** 系統マスタ (色分け用)。 */

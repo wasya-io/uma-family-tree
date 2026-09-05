@@ -3,9 +3,10 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import HorseSearch from '$lib/HorseSearch.svelte';
-	import { fetchHorseGraph, fetchKeitoMaster } from '$lib/data';
+	import HorseDetail from '$lib/HorseDetail.svelte';
+	import { fetchHorseGraph, fetchKeitoMaster, horseExists } from '$lib/data';
 	import { createGraph, type GraphHandle } from '$lib/graph';
-	import type { KeitoMaster } from '$lib/types';
+	import type { HorseNode, KeitoMaster } from '$lib/types';
 
 	let container: HTMLDivElement;
 	let handle: GraphHandle | null = null;
@@ -13,6 +14,12 @@
 	let currentId = '';
 	let status: 'idle' | 'loading' | 'ready' | 'error' = 'idle';
 	let message = '';
+	let toast = '';
+
+	// 選択状態 (詳細パネル用)。中心とは独立。
+	let selected: HorseNode | null = null;
+	let selectedCenterable = false;
+	let selectedChecking = false;
 
 	// URL の ?horse= と現在の中心を同期する。
 	$: urlHorse = $page.url.searchParams.get('horse') ?? '';
@@ -20,27 +27,35 @@
 		void center(urlHorse);
 	}
 
+	$: selectedKeitoName = selected ? (keito[selected.keitoId]?.name ?? '') : '';
+	$: selectedIsCenter = !!selected && selected.id === currentId;
+
 	onMount(async () => {
 		try {
 			keito = await fetchKeitoMaster();
 		} catch (e) {
-			// 系統マスタが無くても描画は続行 (色はフォールバック)。
 			console.warn('系統マスタの取得に失敗:', e);
 		}
-		// 初期表示: URL 指定があればそれを、なければ何も描かず検索待ち。
 		if (urlHorse) await center(urlHorse);
 	});
 
-	async function center(kettoNum: string) {
+	async function center(id: string) {
 		status = 'loading';
 		message = '';
 		try {
-			const graph = await fetchHorseGraph(kettoNum);
-			currentId = kettoNum;
+			const graph = await fetchHorseGraph(id);
+			if (graph === null) {
+				// データが無い馬。現在の表示は保ったまま、そっと知らせる。
+				status = handle ? 'ready' : 'idle';
+				showToast('この馬の血統データはありません');
+				return;
+			}
+			currentId = id;
+			selected = null;
 			if (!handle) {
 				handle = await createGraph(container, graph, {
 					keito,
-					onCenterChange: (id) => navigateTo(id)
+					onSelect: (node) => selectNode(node)
 				});
 				sizeToContainer();
 			} else {
@@ -53,15 +68,43 @@
 		}
 	}
 
-	// 中心切り替えは URL 経由で行い、共有可能な状態を保つ。
-	function navigateTo(kettoNum: string) {
-		void goto(`?horse=${encodeURIComponent(kettoNum)}`, { keepFocus: true, noScroll: true });
+	// ノードタップ = 選択 (中心は変えない)。詳細パネルを出し、中心にできるか確認する。
+	async function selectNode(node: HorseNode) {
+		selected = node;
+		handle?.setSelected(node.id);
+		if (node.id === currentId) {
+			selectedCenterable = false; // すでに中心
+			return;
+		}
+		selectedChecking = true;
+		selectedCenterable = false;
+		const exists = await horseExists(node.id);
+		// 確認中に別のノードが選ばれていなければ反映
+		if (selected && selected.id === node.id) {
+			selectedCenterable = exists;
+			selectedChecking = false;
+		}
+	}
+
+	function closePanel() {
+		selected = null;
+		handle?.setSelected(null);
+	}
+
+	// 中心切り替えは URL 経由 (共有可能)。パネルのボタンからのみ呼ばれる。
+	function centerOn(node: HorseNode) {
+		void goto(`?horse=${encodeURIComponent(node.id)}`, { keepFocus: true, noScroll: true });
+	}
+
+	let toastTimer: ReturnType<typeof setTimeout> | undefined;
+	function showToast(msg: string) {
+		toast = msg;
+		clearTimeout(toastTimer);
+		toastTimer = setTimeout(() => (toast = ''), 2600);
 	}
 
 	function sizeToContainer() {
-		if (handle && container) {
-			handle.resize(container.clientWidth, container.clientHeight);
-		}
+		if (handle && container) handle.resize(container.clientWidth, container.clientHeight);
 	}
 
 	onMount(() => {
@@ -76,27 +119,46 @@
 
 <div class="app">
 	<header>
-		<h1>血統図ビューア</h1>
-		<HorseSearch onSelect={navigateTo} />
+		<h1>血統図</h1>
+		<HorseSearch onSelect={(id) => goto(`?horse=${encodeURIComponent(id)}`)} />
 	</header>
 
 	<div class="graph" bind:this={container}></div>
 
 	{#if status === 'idle'}
-		<p class="overlay">馬を検索して中心に指定してください。</p>
+		<p class="overlay">馬を検索してください</p>
 	{:else if status === 'loading'}
 		<p class="overlay">読み込み中…</p>
 	{:else if status === 'error'}
 		<p class="overlay error">読み込みに失敗しました: {message}</p>
 	{/if}
+
+	{#if toast}
+		<div class="toast">{toast}</div>
+	{/if}
+
+	<HorseDetail
+		node={selected}
+		centerable={selectedCenterable}
+		checking={selectedChecking}
+		isCenter={selectedIsCenter}
+		keitoName={selectedKeitoName}
+		onCenter={centerOn}
+		onClose={closePanel}
+	/>
 </div>
 
 <style>
+	:global(html),
 	:global(body) {
 		margin: 0;
+		height: 100%;
 		background: #000;
 		color: #fff;
 		font-family: system-ui, sans-serif;
+		/* スマホでのブラウザ既定のタッチ挙動(ダブルタップズーム等)を抑制 */
+		touch-action: none;
+		overscroll-behavior: none;
 	}
 	.app {
 		position: fixed;
@@ -111,8 +173,8 @@
 		z-index: 10;
 		display: flex;
 		align-items: center;
-		gap: 1rem;
-		padding: 0.75rem 1rem;
+		gap: 0.75rem;
+		padding: calc(0.6rem + env(safe-area-inset-top)) 0.9rem 0.6rem;
 		pointer-events: none;
 	}
 	header > :global(*) {
@@ -120,7 +182,7 @@
 	}
 	h1 {
 		font-size: 1rem;
-		font-weight: 600;
+		font-weight: 700;
 		margin: 0;
 		white-space: nowrap;
 	}
@@ -135,8 +197,22 @@
 		transform: translate(-50%, -50%);
 		z-index: 5;
 		color: #aaa;
+		text-align: center;
 	}
 	.overlay.error {
 		color: #f28b82;
+	}
+	.toast {
+		position: fixed;
+		left: 50%;
+		bottom: calc(1.5rem + env(safe-area-inset-bottom));
+		transform: translateX(-50%);
+		z-index: 30;
+		background: rgba(40, 40, 44, 0.96);
+		color: #fff;
+		padding: 0.7rem 1.1rem;
+		border-radius: 999px;
+		font-size: 0.9rem;
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 	}
 </style>
