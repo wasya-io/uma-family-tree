@@ -25,11 +25,6 @@ interface EdgeRow {
 	parent: string;
 }
 
-interface GenRow {
-	id: string;
-	generation: number;
-}
-
 /**
  * 中心 centerId の誘導部分グラフ (祖先 ancDepth 代 + 子孫 descDepth 代) を返す。
  * 存在しない中心なら null。
@@ -47,56 +42,51 @@ export async function fetchPedigree(
 		.first<{ id: string }>();
 	if (!center) return null;
 
-	// 世代マップ: 祖先(+n)と子孫(-n)を再帰CTEで集め、|generation| 最小を採用。
-	// 中心=0。MIN(ABS(gen)) を符号付きで拾うため、min(depth) を方向別に取ってから合成する。
-	const genStmt = db
-		.prepare(
-			`WITH RECURSIVE
-       anc(id, depth) AS (
-         SELECT ?1, 0
-         UNION
-         SELECT e.parent_id, anc.depth + 1
-         FROM edges e JOIN anc ON e.child_id = anc.id
-         WHERE anc.depth < ?2
-       ),
-       des(id, depth) AS (
-         SELECT ?1, 0
-         UNION
-         SELECT e.child_id, des.depth + 1
-         FROM edges e JOIN des ON e.parent_id = des.id
-         WHERE des.depth < ?3
-       ),
-       -- 方向ごとに最短 depth を取る
-       anc_min(id, d) AS (SELECT id, MIN(depth) FROM anc GROUP BY id),
-       des_min(id, d) AS (SELECT id, MIN(depth) FROM des GROUP BY id)
-       -- 合成: 中心=0、祖先=+d、子孫=-d。両方に出る場合は中心(0)のみ。
-       SELECT id, 0 AS generation FROM anc_min WHERE id = ?1
-       UNION
-       SELECT id, d AS generation FROM anc_min WHERE id != ?1
-       UNION
-       SELECT id, -d AS generation FROM des_min WHERE id != ?1`
-		)
-		.bind(centerId, ancDepth, descDepth);
+	// 誘導部分グラフの id 集合を SQL 内で完結して求める共通 CTE。
+	// D1 は 1 クエリのバインドパラメータが最大 100 個までのため、id を並べて IN する
+	// 方式 (数百パラメータ) は使えない。代わりに再帰 CTE を JOIN して、バインドは
+	// centerId + 深さ の 3 個だけに抑える。
+	const idsCte = `WITH RECURSIVE
+    anc(id, depth) AS (
+      SELECT ?1, 0
+      UNION
+      SELECT e.parent_id, anc.depth + 1
+      FROM edges e JOIN anc ON e.child_id = anc.id
+      WHERE anc.depth < ?2
+    ),
+    des(id, depth) AS (
+      SELECT ?1, 0
+      UNION
+      SELECT e.child_id, des.depth + 1
+      FROM edges e JOIN des ON e.parent_id = des.id
+      WHERE des.depth < ?3
+    ),
+    anc_min(id, d) AS (SELECT id, MIN(depth) FROM anc GROUP BY id),
+    des_min(id, d) AS (SELECT id, MIN(depth) FROM des GROUP BY id),
+    -- 中心=0、祖先=+d、子孫=-d。両方に出る場合は中心(0)を優先。
+    gen(id, generation) AS (
+      SELECT id, 0 FROM anc_min WHERE id = ?1
+      UNION
+      SELECT id, d FROM anc_min WHERE id != ?1
+      UNION
+      SELECT id, -d FROM des_min WHERE id != ?1
+    ),
+    -- 同一 id が複数世代に出たら |generation| 最小を採用。
+    ids(id, generation) AS (
+      SELECT id, generation FROM gen
+      WHERE ABS(generation) = (SELECT MIN(ABS(g2.generation)) FROM gen g2 WHERE g2.id = gen.id)
+      GROUP BY id
+    )`;
 
-	const genRes = await genStmt.all<GenRow>();
-	const genMap = new Map<string, number>();
-	for (const r of genRes.results ?? []) {
-		const g = r.generation;
-		// 同一 id が祖先側/子孫側 両方に出たら |g| が小さい方 (中心に近い方) を採用。
-		const cur = genMap.get(r.id);
-		if (cur === undefined || Math.abs(g) < Math.abs(cur)) genMap.set(r.id, g);
-	}
-	if (!genMap.has(centerId)) genMap.set(centerId, 0);
-
-	const ids = [...genMap.keys()];
-	if (ids.length === 0) return { center: centerId, nodes: [], edges: [] };
-
-	// ノード情報を取得 (IN 句)。id は "H"+数字で安全なのでプレースホルダ列挙。
-	const placeholders = ids.map((_, i) => `?${i + 1}`).join(',');
+	// ノード: ids と horses を JOIN。バインドは centerId, ancDepth, descDepth の 3 個。
 	const horseRes = await db
-		.prepare(`SELECT * FROM horses WHERE id IN (${placeholders})`)
-		.bind(...ids)
-		.all<HorseRow>();
+		.prepare(
+			`${idsCte}
+       SELECT h.*, ids.generation AS generation
+       FROM ids JOIN horses h ON h.id = ids.id`
+		)
+		.bind(centerId, ancDepth, descDepth)
+		.all<HorseRow & { generation: number }>();
 
 	const nodes: HorseNode[] = (horseRes.results ?? []).map((h) => ({
 		id: h.id,
@@ -108,18 +98,17 @@ export async function fetchPedigree(
 		color: h.color ?? '',
 		birthYear: h.birth_year ?? null,
 		keitoId: h.keito_id ?? 'other',
-		generation: genMap.get(h.id) ?? 0
+		generation: h.generation ?? 0
 	}));
 
-	// 誘導部分グラフのエッジ (両端が id 集合に含まれるもの)。
-	// 2 つの IN で同じ ?1..?N プレースホルダを再利用し、ids を 1 回だけバインドする
-	// (バインド数と参照数を一致させる)。
+	// エッジ: 両端が ids に含まれるものだけ。同じく JOIN でパラメータを増やさない。
 	const edgeRes = await db
 		.prepare(
-			`SELECT parent_id, child_id, parent FROM edges
-       WHERE parent_id IN (${placeholders}) AND child_id IN (${placeholders})`
+			`${idsCte}
+       SELECT e.parent_id, e.child_id, e.parent FROM edges e
+       WHERE e.parent_id IN (SELECT id FROM ids) AND e.child_id IN (SELECT id FROM ids)`
 		)
-		.bind(...ids)
+		.bind(centerId, ancDepth, descDepth)
 		.all<EdgeRow>();
 
 	const edges: PedigreeEdge[] = (edgeRes.results ?? []).map((e) => ({
