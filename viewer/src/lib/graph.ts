@@ -113,29 +113,45 @@ export async function createGraph(
 	const isFather = (l: PedigreeEdge) => l.parent === 'father';
 
 	// 馬名テキストを 3D スプライトとして生成 (常時ラベル用)。
-	const makeLabelSprite = (text: string, highlighted: boolean) => {
+	// style: 'center'=中心馬(大きく黄背景・黒太字・枠), 'selected'=選択馬(オレンジ枠),
+	//        'normal'=通常(暗背景・白字)。
+	type LabelStyle = 'normal' | 'selected' | 'center';
+	const makeLabelSprite = (text: string, style: LabelStyle) => {
 		const canvas = document.createElement('canvas');
 		const ctx = canvas.getContext('2d')!;
-		const fontSize = 48;
-		ctx.font = `bold ${fontSize}px sans-serif`;
-		const padding = 12;
-		const w = Math.ceil(ctx.measureText(text).width) + padding * 2;
-		const h = fontSize + padding * 2;
+		// 中心馬は一回り大きいフォント。
+		const fontSize = style === 'center' ? 76 : 48;
+		const weight = style === 'normal' ? 'bold' : '900';
+		const font = `${weight} ${fontSize}px sans-serif`;
+		ctx.font = font;
+		const padding = style === 'center' ? 20 : 12;
+		const border = style === 'center' ? 6 : style === 'selected' ? 4 : 0;
+		const w = Math.ceil(ctx.measureText(text).width) + padding * 2 + border * 2;
+		const h = fontSize + padding * 2 + border * 2;
 		canvas.width = w;
 		canvas.height = h;
-		// 背景 (可読性のため半透明の暗い帯)
-		ctx.fillStyle = highlighted ? 'rgba(255,213,79,0.9)' : 'rgba(0,0,0,0.55)';
-		ctx.fillRect(0, 0, w, h);
-		ctx.font = `bold ${fontSize}px sans-serif`;
-		ctx.fillStyle = highlighted ? '#000' : '#fff';
+
+		// 枠 (中心=白/選択=オレンジ)
+		if (border > 0) {
+			ctx.fillStyle = style === 'center' ? '#ffffff' : '#ff9800';
+			ctx.fillRect(0, 0, w, h);
+		}
+		// 背景
+		if (style === 'center') ctx.fillStyle = 'rgba(255,213,79,0.98)'; // 明るい黄
+		else if (style === 'selected') ctx.fillStyle = 'rgba(20,20,20,0.92)';
+		else ctx.fillStyle = 'rgba(0,0,0,0.55)';
+		ctx.fillRect(border, border, w - border * 2, h - border * 2);
+
+		// 文字
+		ctx.font = font;
+		ctx.fillStyle = style === 'center' ? '#000000' : '#ffffff';
 		ctx.textBaseline = 'middle';
-		ctx.fillText(text, padding, h / 2);
+		ctx.fillText(text, padding + border, h / 2);
 
 		const texture = new THREE.CanvasTexture(canvas);
 		texture.minFilter = THREE.LinearFilter;
 		const material = new THREE.SpriteMaterial({ map: texture, depthWrite: false, transparent: true });
 		const sprite = new THREE.Sprite(material);
-		// スケール: キャンバス比率を保ちつつ見やすい大きさに。
 		const scale = 0.14;
 		sprite.scale.set(w * scale, h * scale, 1);
 		return sprite;
@@ -149,7 +165,8 @@ export async function createGraph(
 		const name = n.name || n.kana || n.eng || n.id;
 		const isCenter = n.generation === 0;
 		const important = isCenter || n.id === selectedId;
-		const sprite = makeLabelSprite(name, n.id === selectedId);
+		const style: LabelStyle = isCenter ? 'center' : n.id === selectedId ? 'selected' : 'normal';
+		const sprite = makeLabelSprite(name, style);
 		labels.push({ sprite, nodeId: n.id, important, isCenter, generation: n.generation });
 		return sprite;
 	};
