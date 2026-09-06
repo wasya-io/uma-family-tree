@@ -3,10 +3,10 @@ compatibility_date = "2024-11-01"
 pages_build_output_dir = ".svelte-kit/cloudflare"
 
 # D1 データベースのバインディング。
-# 本番デプロイ前に `wrangler d1 create uma-family-tree` で得た実 ID に置き換える。
-# ローカル開発中はこのプレースホルダ ID のままで、ローカル SQLite に対して動作する
-# (d1 execute --local と pages dev が同じローカル DB を参照するよう固定値にしている)。
+# `wrangler d1 create uma-family-tree` で作成した本番 D1 の実 ID。
+# ローカル開発では `--local` を付けるとローカル SQLite を使うため、この ID でも
+# ローカル/本番の両方に対応できる (d1 execute --local と pages dev が同じローカル DB を参照)。
 [[d1_databases]]
 binding = "DB"
 database_name = "uma-family-tree"
-database_id = "local-dev-placeholder-0000-0000-000000000000"
+database_id = "a0173b89-1f07-492b-8f96-ecb6e5418ae6"
