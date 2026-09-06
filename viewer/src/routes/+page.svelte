@@ -21,6 +21,12 @@
 	let selectedCenterable = false;
 	let selectedChecking = false;
 
+	// 子孫の間引き情報。代表的な子だけ表示中かどうか。
+	let truncatedChildren = false;
+	let totalChildren = 0;
+	let showingAll = false; // 「すべて表示」中か
+	let loadingAll = false;
+
 	// URL の ?horse= と現在の中心を同期する。
 	$: urlHorse = $page.url.searchParams.get('horse') ?? '';
 	$: if (urlHorse && urlHorse !== currentId && status !== 'loading') {
@@ -39,11 +45,11 @@
 		if (urlHorse) await center(urlHorse);
 	});
 
-	async function center(id: string) {
+	async function center(id: string, full = false) {
 		status = 'loading';
 		message = '';
 		try {
-			const graph = await fetchHorseGraph(id);
+			const graph = await fetchHorseGraph(id, full);
 			if (graph === null) {
 				// データが無い馬。現在の表示は保ったまま、そっと知らせる。
 				status = handle ? 'ready' : 'idle';
@@ -52,6 +58,10 @@
 			}
 			currentId = id;
 			selected = null;
+			// 間引き情報を反映。
+			truncatedChildren = graph.meta?.truncatedChildren ?? false;
+			totalChildren = graph.meta?.totalChildren ?? 0;
+			showingAll = full;
 			if (!handle) {
 				handle = await createGraph(container, graph, {
 					keito,
@@ -65,6 +75,17 @@
 		} catch (e) {
 			status = 'error';
 			message = e instanceof Error ? e.message : String(e);
+		}
+	}
+
+	// 「すべて表示」: 現在の中心馬を絞り込み解除で取り直す (重い)。
+	async function showAllChildren() {
+		if (!currentId || loadingAll) return;
+		loadingAll = true;
+		try {
+			await center(currentId, true);
+		} finally {
+			loadingAll = false;
 		}
 	}
 
@@ -135,6 +156,15 @@
 
 	{#if toast}
 		<div class="toast">{toast}</div>
+	{/if}
+
+	{#if status === 'ready' && truncatedChildren && !showingAll}
+		<div class="notice">
+			<span>子が多いため代表的な子のみ表示中(全 {totalChildren} 頭)</span>
+			<button on:click={showAllChildren} disabled={loadingAll}>
+				{loadingAll ? '読み込み中…' : 'すべて表示'}
+			</button>
+		</div>
 	{/if}
 
 	{#if status === 'ready'}
@@ -213,6 +243,43 @@
 	}
 	.overlay.error {
 		color: #f28b82;
+	}
+	.notice {
+		position: fixed;
+		top: calc(3.6rem + env(safe-area-inset-top));
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 16;
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		max-width: 92vw;
+		background: rgba(30, 30, 34, 0.94);
+		color: #eee;
+		border: 1px solid #4a4a4a;
+		border-radius: 10px;
+		padding: 0.5rem 0.8rem;
+		font-size: 0.82rem;
+		box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+	}
+	.notice span {
+		line-height: 1.3;
+	}
+	.notice button {
+		flex-shrink: 0;
+		background: #ffd54f;
+		color: #1a1a1a;
+		border: none;
+		border-radius: 6px;
+		padding: 0.4rem 0.7rem;
+		font-size: 0.82rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.notice button:disabled {
+		background: #555;
+		color: #aaa;
+		cursor: default;
 	}
 	.toast {
 		position: fixed;

@@ -30,11 +30,18 @@ export interface PedigreeEdge {
 	parent: 'father' | 'mother';
 }
 
-/** 馬ノードファイル / 全部盛りファイルの中身。 */
+/** 馬ノードファイル / API レスポンスの中身。 */
 export interface HorseGraph {
 	center: string;
 	nodes: HorseNode[];
 	edges: PedigreeEdge[];
+	/** 子孫の間引き情報 (任意)。 */
+	meta?: {
+		/** 直仔が多く「代表的な子」に絞られているか。 */
+		truncatedChildren: boolean;
+		/** 中心馬の直仔の総数。 */
+		totalChildren: number;
+	};
 }
 
 /** 検索インデックス (search-index.json) の要素。 */

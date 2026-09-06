@@ -2,8 +2,9 @@ import { error, json } from '@sveltejs/kit';
 import { fetchPedigree, DEFAULT_ANCESTOR_DEPTH, DEFAULT_DESCENDANT_DEPTH } from '$lib/server/pedigree';
 import type { RequestHandler } from './$types';
 
-// GET /api/horse/:id?anc=5&desc=3
+// GET /api/horse/:id?anc=5&desc=1&full=1
 // 中心馬 :id の祖先 anc 代 + 子孫 desc 代のサブグラフを返す。存在しなければ 404。
+// full=1 で「代表的な子」への絞り込みを解除 (全子を返す。重い)。
 export const GET: RequestHandler = async ({ params, url, platform }) => {
 	const db = platform?.env?.DB;
 	if (!db) throw error(500, 'D1 binding (DB) が見つかりません');
@@ -11,8 +12,9 @@ export const GET: RequestHandler = async ({ params, url, platform }) => {
 	const id = params.id;
 	const anc = clampDepth(url.searchParams.get('anc'), DEFAULT_ANCESTOR_DEPTH);
 	const desc = clampDepth(url.searchParams.get('desc'), DEFAULT_DESCENDANT_DEPTH);
+	const full = url.searchParams.get('full') === '1';
 
-	const graph = await fetchPedigree(db, id, anc, desc);
+	const graph = await fetchPedigree(db, id, { ancDepth: anc, descDepth: desc, full });
 	if (graph === null) throw error(404, 'not found');
 
 	return json(graph, {

@@ -5,9 +5,11 @@ import type { HorseGraph, KeitoMaster, SearchEntry } from './types';
 
 /**
  * 馬の血統サブグラフを取得。存在しない (404) 場合は null を返す (エラーにしない)。
+ * full=true で「代表的な子」への絞り込みを解除し全子を取得する (重い)。
  */
-export async function fetchHorseGraph(id: string): Promise<HorseGraph | null> {
-	const res = await fetch(`/api/horse/${encodeURIComponent(id)}`);
+export async function fetchHorseGraph(id: string, full = false): Promise<HorseGraph | null> {
+	const qs = full ? '?full=1' : '';
+	const res = await fetch(`/api/horse/${encodeURIComponent(id)}${qs}`);
 	if (res.status === 404) return null;
 	if (!res.ok) throw new Error(`データ取得に失敗: /api/horse/${id} (${res.status})`);
 	return (await res.json()) as HorseGraph;
