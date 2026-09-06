@@ -19,8 +19,9 @@ export const GET: RequestHandler = async ({ params, url, platform }) => {
 
 	return json(graph, {
 		headers: {
-			// 同一馬の再表示は D1 を叩かないようキャッシュ (人気馬ほど効く)。
-			'cache-control': 'public, max-age=3600'
+			// 同一馬の再表示を軽くしつつ、データ/ロジック更新後の陳腐化を短時間に抑える。
+			// (長すぎると仕様変更後も古いレスポンスが残り続ける)
+			'cache-control': 'public, max-age=300'
 		}
 	});
 };
