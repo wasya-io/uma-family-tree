@@ -89,6 +89,17 @@
 		}
 	}
 
+	// 「代表表示に戻す」: 全表示から代表的な子だけの表示に戻す。
+	async function showRepresentative() {
+		if (!currentId || loadingAll) return;
+		loadingAll = true;
+		try {
+			await center(currentId, false);
+		} finally {
+			loadingAll = false;
+		}
+	}
+
 	// ノードタップ = 選択 (中心は変えない)。詳細パネルを出し、中心にできるか確認する。
 	async function selectNode(node: HorseNode) {
 		selected = node;
@@ -163,6 +174,13 @@
 			<span>子が多いため代表的な子のみ表示中(全 {totalChildren} 頭)</span>
 			<button on:click={showAllChildren} disabled={loadingAll}>
 				{loadingAll ? '読み込み中…' : 'すべて表示'}
+			</button>
+		</div>
+	{:else if status === 'ready' && showingAll && totalChildren > 40}
+		<div class="notice">
+			<span>すべての子を表示中(全 {totalChildren} 頭)</span>
+			<button on:click={showRepresentative} disabled={loadingAll}>
+				{loadingAll ? '読み込み中…' : '代表表示に戻す'}
 			</button>
 		</div>
 	{/if}
