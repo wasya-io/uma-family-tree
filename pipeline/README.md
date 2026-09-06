@@ -18,23 +18,30 @@ pip install -e ".[dev]"
 
 ## 使い方
 
-1. JV-Link がダンプした生データを `input/` に配置する。
+1. JV-Link がダンプした生データを `input/` に配置する
+   (UM/HN/SK/BT の .dat と、データ基準時点を示す `lastfiletime.txt`)。
 2. パイプラインを実行:
 
    ```bash
-   uma-pipeline --input ./input --output ./output
+   .venv/bin/uma-pipeline --input ./input --output ./output
    ```
 
-3. `output/` に以下が生成される:
+3. `output/pedigree.sql` が生成される (Cloudflare D1 投入用の SQL)。
+   `horses` / `edges` / `keito_master` / `meta` の INSERT 文をトランザクションで囲んだもの。
 
-   | 生成物 | 内容 |
+   | テーブル | 内容 |
    |---|---|
-   | `horses/{KettoNum}.json` | 馬ノードファイル (祖先 M 代 + 子孫 L 代を事前展開) |
-   | `search-index.json` | 検索辞書 (カナ/英字 → KettoNum) |
-   | `keito-master.json` | 系統マスタ (KeitoId → 系統名 + 色) |
-   | `full/{KettoNum}.json` | 全部盛り専用ファイル (限定始祖の全子孫) |
+   | `horses` | 馬ノード (id="H"+繁殖番号、名前/カナ/性別/毛色/生年/系統ID) |
+   | `edges` | 親子エッジ (parent_id → child_id, parent='father'\|'mother') |
+   | `keito_master` | 系統マスタ (主要系統に丸めた KeitoId → 系統名 + 色) |
+   | `meta` | `data_timestamp` = `lastfiletime.txt` の値 (データ基準時点) |
 
-4. `output/` を R2 バケットにアップロードする (デプロイ手順は `docs/design.md` §6)。
+4. 生成した SQL を `viewer/db/pedigree.sql` にコピーし、D1 に投入する
+   (投入・デプロイ手順は [`../docs/deploy.md`](../docs/deploy.md))。
+
+   ```bash
+   cp output/pedigree.sql ../viewer/db/pedigree.sql
+   ```
 
 ## モジュール構成
 
@@ -43,11 +50,10 @@ pip install -e ".[dev]"
 | `uma_pipeline.records` | JV-Data レコード (UM/HN/SK/BT) のパース |
 | `uma_pipeline.graph` | パース結果から血統 DAG (ノード + 親子エッジ + 逆引き) を構築 |
 | `uma_pipeline.keito` | 系統 (BT) を集計し、主要系統に丸めた系統マスタを生成 |
-| `uma_pipeline.emit` | DAG から各種 JSON を書き出し |
+| `uma_pipeline.emit` | DAG から D1 投入用 SQL (`write_sql`) を書き出し |
 | `uma_pipeline.codes` | SexCD / KeiroCD などコード値のデコード表 |
-| `uma_pipeline.cli` | エントリポイント (入出力パス・深さの指定) |
+| `uma_pipeline.cli` | エントリポイント (入出力パス・SQL ファイル名の指定) |
 
 ## 現状
 
-雛形 (スキャフォールド)。各モジュールはインターフェースと TODO を定義済み。
-実データ (input) が用意でき次第、パース・DAG 構築・出力の中身を実装する。
+実装済み。実データ (horses 153,798 / edges 282,676 / keito 21) で SQL 生成を確認済み。
