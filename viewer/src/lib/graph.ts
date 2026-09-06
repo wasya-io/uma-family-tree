@@ -88,12 +88,17 @@ export async function createGraph(
 		sprite: InstanceType<typeof THREE.Sprite>;
 		nodeId: string;
 		important: boolean;
+		isCenter: boolean;
 		generation: number;
 	};
 	let labels: LabelInfo[] = [];
 
+	// 中心馬 (generation===0) を原点に固定する。fx/fy/fz を与えると
+	// フォースシミュレーションでも動かず、常にグラフの中心に居座る。
 	const toGraphData = (g: HorseGraph) => ({
-		nodes: g.nodes.map((n) => ({ ...n })),
+		nodes: g.nodes.map((n) =>
+			n.generation === 0 ? { ...n, fx: 0, fy: 0, fz: 0 } : { ...n }
+		),
 		links: g.edges.map((e) => ({ ...e }))
 	});
 
@@ -134,9 +139,10 @@ export async function createGraph(
 	const labelObject = (n: HorseNode): InstanceType<typeof THREE.Object3D> => {
 		if (Math.abs(n.generation) > LABEL_MAX_GEN) return emptyObject();
 		const name = n.name || n.kana || n.eng || n.id;
-		const important = n.generation === 0 || n.id === selectedId;
+		const isCenter = n.generation === 0;
+		const important = isCenter || n.id === selectedId;
 		const sprite = makeLabelSprite(name, n.id === selectedId);
-		labels.push({ sprite, nodeId: n.id, important, generation: n.generation });
+		labels.push({ sprite, nodeId: n.id, important, isCenter, generation: n.generation });
 		return sprite;
 	};
 
@@ -172,6 +178,15 @@ export async function createGraph(
 		graph.nodeThreeObject(graph.nodeThreeObject());
 	};
 
+	// 中心馬 (原点に固定) を注視点にする。カメラ位置は変えず look-at だけ原点へ。
+	const aimAtCenter = (ms = 600) => {
+		const cam = graph.camera();
+		const pos = { x: cam.position.x, y: cam.position.y, z: cam.position.z };
+		graph.cameraPosition(pos, { x: 0, y: 0, z: 0 }, ms);
+	};
+	// レイアウトが落ち着いたタイミングで注視点を原点へ。
+	graph.onEngineStop(() => aimAtCenter(400));
+
 	// フェード: 毎フレーム、世代ベースと「相対距離ベース」の max を適用する。
 	// 相対距離ベース = そのフレームの全ラベル距離の min..max で正規化するので、
 	// ズームや回り込みに関係なく「今いちばん手前のラベルは必ず濃い」。
@@ -202,10 +217,17 @@ export async function createGraph(
 			}
 			const span = dmax - dmin;
 
+			// 中心馬ラベルの明滅係数 (0.55..1.0 をゆっくり往復)。
+			const blink = 0.775 + 0.225 * Math.sin(performance.now() / 380);
+
 			// 2nd pass: opacity を適用。
 			for (let i = 0; i < labels.length; i++) {
-				const { sprite, important, generation } = labels[i];
+				const { sprite, important, isCenter, generation } = labels[i];
 				const mat = sprite.material as InstanceType<typeof THREE.SpriteMaterial>;
+				if (isCenter) {
+					mat.opacity = blink; // 中心馬は明滅させて目立たせる
+					continue;
+				}
 				if (important) {
 					mat.opacity = 1;
 					continue;
