@@ -21,6 +21,11 @@ viewer/static/horses/
 viewer/static/keito-master.json
 viewer/static/search-index.json
 
+# D1 投入用の生成 SQL (JRA-VAN 由来データ。コミットしない)
+viewer/db/pedigree.sql
+# wrangler のローカル状態 (ローカル D1 の実体など)
+.wrangler/
+
 # JV-Link SDK 資料 (JRA-VAN 配布物: exe/msi/仕様書等。ライセンス上コミットしない)
 .refarence/
 

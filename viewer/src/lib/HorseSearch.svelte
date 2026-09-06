@@ -1,43 +1,37 @@
 <script lang="ts">
-	import { fetchSearchIndex } from './data';
+	import { searchHorses } from './data';
 	import type { SearchEntry } from './types';
 
-	// 選択時に中心 KettoNum を親へ通知。
-	export let onSelect: (kettoNum: string) => void;
+	// 選択時にノード id を親へ通知。
+	export let onSelect: (id: string) => void;
 
 	let query = '';
-	let index: SearchEntry[] = [];
-	let loaded = false;
+	let results: SearchEntry[] = [];
 	let error = '';
+	let seq = 0; // 応答順序の入れ替わり防止
 
-	async function ensureIndex() {
-		if (loaded) return;
-		try {
-			index = await fetchSearchIndex();
-			loaded = true;
-		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
-		}
+	// 入力のたびにサーバ検索 (D1)。簡易デバウンス。
+	let debounce: ReturnType<typeof setTimeout> | undefined;
+	function onInput() {
+		clearTimeout(debounce);
+		const q = query;
+		debounce = setTimeout(() => void run(q), 180);
 	}
 
-	// 馬名 (漢字/カナ) + 英字のインクリメンタルサーチ (部分一致)。
-	$: results = matchResults(query, index);
-
-	function matchResults(q: string, entries: SearchEntry[]): SearchEntry[] {
-		const t = q.trim().toLowerCase();
-		if (!t) return [];
-		return entries
-			.filter(
-				(e) =>
-					(e.name && e.name.toLowerCase().includes(t)) ||
-					(e.kana && e.kana.toLowerCase().includes(t)) ||
-					(e.eng && e.eng.toLowerCase().includes(t))
-			)
-			.slice(0, 20);
+	async function run(q: string) {
+		const my = ++seq;
+		error = '';
+		try {
+			const r = await searchHorses(q);
+			if (my === seq) results = r; // 最新のリクエストだけ反映
+		} catch (e) {
+			if (my === seq) error = e instanceof Error ? e.message : String(e);
+		}
 	}
 
 	function select(entry: SearchEntry) {
 		query = entry.name || entry.kana || entry.eng;
+		results = [];
 		onSelect(entry.id);
 	}
 </script>
@@ -45,9 +39,9 @@
 <div class="search">
 	<input
 		type="search"
-		placeholder="馬名 (カナ / 英字) で検索"
+		placeholder="馬名で検索"
 		bind:value={query}
-		on:focus={ensureIndex}
+		on:input={onInput}
 		aria-label="馬名で検索"
 	/>
 	{#if error}

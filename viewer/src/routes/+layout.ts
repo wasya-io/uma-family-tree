@@ -1,3 +1,4 @@
-// 完全な静的 SPA として動作させる (データは実行時に R2 から fetch)。
+// フロントは SPA (クライアント描画)。API ルート (/api/*) は Pages Functions で
+// 動的に D1 を叩くため、全体プリレンダーはしない。
 export const ssr = false;
-export const prerender = true;
+export const prerender = false;
