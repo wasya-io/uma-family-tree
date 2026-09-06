@@ -4,7 +4,7 @@
 	import { goto } from '$app/navigation';
 	import HorseSearch from '$lib/HorseSearch.svelte';
 	import HorseDetail from '$lib/HorseDetail.svelte';
-	import { fetchHorseGraph, fetchKeitoMaster, horseExists } from '$lib/data';
+	import { fetchHorseGraph, fetchKeitoMaster, fetchMeta, horseExists } from '$lib/data';
 	import { createGraph, type GraphHandle } from '$lib/graph';
 	import type { HorseNode, KeitoMaster } from '$lib/types';
 
@@ -13,6 +13,7 @@
 	let keito: KeitoMaster = {};
 	let currentId = '';
 	let centerName = ''; // 中心馬の名前 (タイトル表示用)
+	let dataDate = ''; // データ基準日 (フッター表示用, YYYY年M月D日)
 	let status: 'idle' | 'loading' | 'ready' | 'error' = 'idle';
 	let message = '';
 	let toast = '';
@@ -43,8 +44,23 @@
 		} catch (e) {
 			console.warn('系統マスタの取得に失敗:', e);
 		}
+		try {
+			const meta = await fetchMeta();
+			dataDate = formatDataDate(meta.data_timestamp);
+		} catch (e) {
+			console.warn('メタ情報の取得に失敗:', e);
+		}
 		if (urlHorse) await center(urlHorse);
 	});
+
+	// YYYYMMDDhhmmss → "YYYY年M月D日" (時刻は省略)。
+	function formatDataDate(ts: string | undefined): string {
+		if (!ts || ts.length < 8) return '';
+		const y = ts.slice(0, 4);
+		const m = String(parseInt(ts.slice(4, 6), 10));
+		const d = String(parseInt(ts.slice(6, 8), 10));
+		return `${y}年${m}月${d}日`;
+	}
 
 	async function center(id: string, full = false) {
 		status = 'loading';
@@ -217,6 +233,12 @@
 		onCenter={centerOn}
 		onClose={closePanel}
 	/>
+
+	{#if dataDate && !selected}
+		<footer class="data-footer">
+			本サイトの血統データは {dataDate}時点のものです
+		</footer>
+	{/if}
 </div>
 
 <style>
@@ -323,6 +345,18 @@
 		background: #555;
 		color: #aaa;
 		cursor: default;
+	}
+	.data-footer {
+		position: fixed;
+		left: 0;
+		right: 0;
+		bottom: calc(0.4rem + env(safe-area-inset-bottom));
+		z-index: 5;
+		text-align: center;
+		color: #6b6b6b;
+		font-size: 0.7rem;
+		pointer-events: none;
+		padding: 0 0.5rem;
 	}
 	.toast {
 		position: fixed;

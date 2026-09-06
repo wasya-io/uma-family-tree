@@ -30,6 +30,12 @@ CREATE TABLE IF NOT EXISTS keito_master (
   color       TEXT
 );
 
+-- メタ情報 (データ基準時点など)。key/value の汎用テーブル。
+CREATE TABLE IF NOT EXISTS meta (
+  key         TEXT PRIMARY KEY,
+  value       TEXT
+);
+
 -- 探索用インデックス (再帰CTEの rows_read を抑える要)
 CREATE INDEX IF NOT EXISTS idx_edges_child  ON edges(child_id);   -- 祖先方向: 子から親を引く
 CREATE INDEX IF NOT EXISTS idx_edges_parent ON edges(parent_id);  -- 子孫方向: 親から子を引く

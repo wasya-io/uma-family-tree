@@ -47,8 +47,9 @@ def write_sql(
     graph: PedigreeGraph,
     keito_master: dict[str, dict[str, str]],
     out_path: Path,
+    meta: dict[str, str] | None = None,
 ) -> dict[str, int]:
-    """horses/edges/keito_master の INSERT を 1 つの .sql に書き出す。件数を返す。"""
+    """horses/edges/keito_master(/meta) の INSERT を 1 つの .sql に書き出す。件数を返す。"""
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     horse_rows: list[str] = []
@@ -93,6 +94,10 @@ def write_sql(
             + ")"
         )
 
+    meta_rows: list[str] = []
+    for k, v in (meta or {}).items():
+        meta_rows.append("(" + ", ".join([_sql_str(k), _sql_str(v)]) + ")")
+
     with open(out_path, "w", encoding="utf-8") as out:
         out.write("PRAGMA foreign_keys=OFF;\n")
         out.write("BEGIN TRANSACTION;\n")
@@ -100,10 +105,18 @@ def write_sql(
         out.write("DELETE FROM edges;\n")
         out.write("DELETE FROM horses;\n")
         out.write("DELETE FROM keito_master;\n")
+        out.write("DELETE FROM meta;\n")
         _batched(horse_rows, "horses",
                  "(id, ketto_num, name, kana, eng, sex, color, birth_year, keito_id)", out)
         _batched(edge_rows, "edges", "(parent_id, child_id, parent)", out)
         _batched(keito_rows, "keito_master", "(keito_id, name, color)", out)
+        if meta_rows:
+            _batched(meta_rows, "meta", "(key, value)", out)
         out.write("COMMIT;\n")
 
-    return {"horses": len(horse_rows), "edges": len(edge_rows), "keito": len(keito_rows)}
+    return {
+        "horses": len(horse_rows),
+        "edges": len(edge_rows),
+        "keito": len(keito_rows),
+        "meta": len(meta_rows),
+    }

@@ -31,6 +31,13 @@ export async function horseExists(id: string): Promise<boolean> {
 	}
 }
 
+/** データセットのメタ情報 (data_timestamp など)。 */
+export async function fetchMeta(): Promise<Record<string, string>> {
+	const res = await fetch('/api/meta');
+	if (!res.ok) return {};
+	return (await res.json()) as Record<string, string>;
+}
+
 /** 系統マスタ (色分け用)。 */
 export async function fetchKeitoMaster(): Promise<KeitoMaster> {
 	const res = await fetch('/api/keito');

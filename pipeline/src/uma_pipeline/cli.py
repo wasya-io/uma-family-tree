@@ -43,10 +43,22 @@ def run(args: argparse.Namespace) -> None:
     keito_names = {r.keito_id: r.keito_name for r in data.keito.values()}
     master = keito.build_keito_master(graph, keito_names)
 
+    # データ基準時点 (ダウンロード時に保存した lastfiletime.txt)。
+    meta: dict[str, str] = {}
+    lastfiletime_path = args.input / "lastfiletime.txt"
+    if lastfiletime_path.exists():
+        ts = lastfiletime_path.read_text(encoding="ascii").strip()
+        if ts:
+            meta["data_timestamp"] = ts  # YYYYMMDDhhmmss
+            print(f"  データ基準時点: {ts}")
+
     print("[4/4] D1 投入用 SQL を書き出し")
     sql_path = args.output / args.sql_name
-    counts = emit.write_sql(graph, master, sql_path)
-    print(f"  horses={counts['horses']} edges={counts['edges']} keito={counts['keito']}")
+    counts = emit.write_sql(graph, master, sql_path, meta=meta)
+    print(
+        f"  horses={counts['horses']} edges={counts['edges']} "
+        f"keito={counts['keito']} meta={counts['meta']}"
+    )
     print(f"完了: {sql_path}")
 
 
