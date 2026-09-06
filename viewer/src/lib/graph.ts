@@ -247,7 +247,8 @@ export async function createGraph(
 	let needsFit = true;
 	graph.onEngineStop(() => {
 		if (needsFit) {
-			graph.zoomToFit(500, 60); // 全ノードが収まるようフィット (padding 60px)
+			// レイアウト安定後にフィット。ガクッとせず滑らかに寄せるため長めのアニメーション。
+			graph.zoomToFit(1200, 60); // 全ノードが収まるようフィット (padding 60px)
 			needsFit = false;
 		}
 	});
