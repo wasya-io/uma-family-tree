@@ -116,37 +116,48 @@ export async function createGraph(
 	// style: 'center'=中心馬(大きく黄背景・黒太字・枠), 'selected'=選択馬(オレンジ枠),
 	//        'normal'=通常(暗背景・白字)。
 	type LabelStyle = 'normal' | 'selected' | 'center';
+	const roundRect = (
+		ctx: CanvasRenderingContext2D,
+		x: number,
+		y: number,
+		w: number,
+		h: number,
+		r: number
+	) => {
+		ctx.beginPath();
+		ctx.moveTo(x + r, y);
+		ctx.arcTo(x + w, y, x + w, y + h, r);
+		ctx.arcTo(x + w, y + h, x, y + h, r);
+		ctx.arcTo(x, y + h, x, y, r);
+		ctx.arcTo(x, y, x + w, y, r);
+		ctx.closePath();
+		ctx.fill();
+	};
+
 	const makeLabelSprite = (text: string, style: LabelStyle) => {
 		const canvas = document.createElement('canvas');
 		const ctx = canvas.getContext('2d')!;
-		// 中心馬は一回り大きいフォント。
-		const fontSize = style === 'center' ? 76 : 48;
-		const weight = style === 'normal' ? 'bold' : '900';
-		const font = `${weight} ${fontSize}px sans-serif`;
+		// 中心馬は少しだけ大きく (1.3倍程度)。派手にしすぎない。
+		const fontSize = style === 'center' ? 62 : 48;
+		const font = `bold ${fontSize}px sans-serif`;
 		ctx.font = font;
-		const padding = style === 'center' ? 20 : 12;
-		const border = style === 'center' ? 6 : style === 'selected' ? 4 : 0;
-		const w = Math.ceil(ctx.measureText(text).width) + padding * 2 + border * 2;
-		const h = fontSize + padding * 2 + border * 2;
+		const padding = style === 'center' ? 16 : 12;
+		const w = Math.ceil(ctx.measureText(text).width) + padding * 2;
+		const h = fontSize + padding * 2;
 		canvas.width = w;
 		canvas.height = h;
 
-		// 枠 (中心=白/選択=オレンジ)
-		if (border > 0) {
-			ctx.fillStyle = style === 'center' ? '#ffffff' : '#ff9800';
-			ctx.fillRect(0, 0, w, h);
-		}
-		// 背景
-		if (style === 'center') ctx.fillStyle = 'rgba(255,213,79,0.98)'; // 明るい黄
-		else if (style === 'selected') ctx.fillStyle = 'rgba(20,20,20,0.92)';
+		// 背景 (角丸で上品に)。中心=淡い黄、選択=やや明るい暗色、通常=暗い半透明。
+		if (style === 'center') ctx.fillStyle = 'rgba(245,224,140,0.95)'; // 淡い黄
+		else if (style === 'selected') ctx.fillStyle = 'rgba(40,40,44,0.92)';
 		else ctx.fillStyle = 'rgba(0,0,0,0.55)';
-		ctx.fillRect(border, border, w - border * 2, h - border * 2);
+		roundRect(ctx, 0, 0, w, h, Math.min(h / 2, 16));
 
 		// 文字
 		ctx.font = font;
-		ctx.fillStyle = style === 'center' ? '#000000' : '#ffffff';
+		ctx.fillStyle = style === 'center' ? '#1a1a1a' : '#ffffff';
 		ctx.textBaseline = 'middle';
-		ctx.fillText(text, padding + border, h / 2);
+		ctx.fillText(text, padding, h / 2);
 
 		const texture = new THREE.CanvasTexture(canvas);
 		texture.minFilter = THREE.LinearFilter;
