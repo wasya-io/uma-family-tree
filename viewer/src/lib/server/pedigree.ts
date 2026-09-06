@@ -5,7 +5,9 @@ import type { D1Database } from '@cloudflare/workers-types';
 import type { HorseGraph, HorseNode, PedigreeEdge } from '$lib/types';
 
 export const DEFAULT_ANCESTOR_DEPTH = 5;
-export const DEFAULT_DESCENDANT_DEPTH = 3;
+// 子孫方向は世代ごとに掛け算で増える (種牡馬だと3代で1万超)。表示破綻を防ぐため
+// デフォルトは 1 代のみ。もっと下流を見たいときは子ノードをタップして中心を移す。
+export const DEFAULT_DESCENDANT_DEPTH = 1;
 
 interface HorseRow {
 	id: string;
