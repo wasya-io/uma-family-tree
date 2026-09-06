@@ -203,6 +203,9 @@ export async function createGraph(
 		.linkWidth((l) => (isFather(l as unknown as PedigreeEdge) ? 0.5 : 1.2))
 		.linkDirectionalParticles((l) => (isFather(l as unknown as PedigreeEdge) ? 0 : 2))
 		.linkDirectionalParticleWidth(1.5)
+		// 標準の操作ガイド (Left-click: rotate ...) を消す。英語・PCマウス前提で
+		// スマホ中心の本アプリに合わず、フッターとも重なるため。
+		.showNavInfo(false)
 		// 表示前に裏で配置を進めておく (warmup)。表示時点で概ね落ち着いており、
 		// 「表示直後にノードがぶつかってプルプル動く」不快感を抑える。
 		.warmupTicks(300)
