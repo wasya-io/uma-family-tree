@@ -13,11 +13,17 @@ export async function fetchHorseGraph(id: string): Promise<HorseGraph | null> {
 	return (await res.json()) as HorseGraph;
 }
 
-/** 馬が存在するか (中心にできるかの判定用)。軽量に HEAD で確認。 */
+/**
+ * 馬が存在するか (中心にできるかの判定用)。
+ * /api/exists は 1 行読むだけなので、血統サブグラフ全体を計算する /api/horse を
+ * HEAD で叩いていた旧実装より圧倒的に速い (サンデーサイレンス級でも一瞬)。
+ */
 export async function horseExists(id: string): Promise<boolean> {
 	try {
-		const res = await fetch(`/api/horse/${encodeURIComponent(id)}`, { method: 'HEAD' });
-		return res.ok;
+		const res = await fetch(`/api/exists/${encodeURIComponent(id)}`);
+		if (!res.ok) return false;
+		const data = (await res.json()) as { exists: boolean };
+		return data.exists;
 	} catch {
 		return false;
 	}

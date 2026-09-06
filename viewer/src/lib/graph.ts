@@ -240,14 +240,17 @@ export async function createGraph(
 		controls?.update?.();
 		graph.cameraPosition(pos, { x: 0, y: 0, z: 0 }, ms);
 	};
-	// 中心馬 (原点に固定) を注視点にする。カメラ位置は変えず look-at だけ原点へ。
-	const aimAtCenter = (ms = 600) => {
-		const cam = graph.camera();
-		const pos = { x: cam.position.x, y: cam.position.y, z: cam.position.z };
-		graph.cameraPosition(pos, { x: 0, y: 0, z: 0 }, ms);
-	};
-	// レイアウトが落ち着いたタイミングで注視点を原点へ。
-	graph.onEngineStop(() => aimAtCenter(400));
+	// 新しいグラフを読み込んだ直後の1回だけ、ズームを内容に合わせる (zoomToFit)。
+	// これをしないと、大きいグラフ(サンデー等)の後に小さいグラフ(エアリーチューン等)を
+	// 開いたとき、前のズームアウト状態が残ってしまう。
+	// ユーザーが手動でズーム/回転した後は fit しない (needsFit=false)。
+	let needsFit = true;
+	graph.onEngineStop(() => {
+		if (needsFit) {
+			graph.zoomToFit(500, 60); // 全ノードが収まるようフィット (padding 60px)
+			needsFit = false;
+		}
+	});
 
 	// フェード: 毎フレーム、世代ベースと「相対距離ベース」の max を適用する。
 	// 相対距離ベース = そのフレームの全ラベル距離の min..max で正規化するので、
@@ -312,6 +315,7 @@ export async function createGraph(
 			crossed = computeInbreeding(g.edges);
 			selectedId = null;
 			labels = [];
+			needsFit = true; // 新グラフに合わせてズームし直す
 			graph.graphData(toGraphData(g));
 		},
 		setSelected(id: string | null) {
