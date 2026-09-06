@@ -104,7 +104,7 @@ export async function createGraph(
 	// 同世代を完全に同一平面 (Y 固定) に置くと、平面内に押し込められて均一な円盤状の
 	// 塊になる。Y にランダムなゆらぎを足して平面をほぐす (世代分けは大まかに維持)。
 	// ゆらぎは世代間隔より十分小さくして、祖先=上/子孫=下 の分離は保つ。
-	const Y_JITTER = 22;
+	const Y_JITTER = 55;
 	const toGraphData = (g: HorseGraph) => ({
 		nodes: g.nodes.map((n) => {
 			if (n.generation === 0) return { ...n, fx: 0, fy: 0, fz: 0 };
@@ -203,8 +203,20 @@ export async function createGraph(
 		.linkWidth((l) => (isFather(l as unknown as PedigreeEdge) ? 0.5 : 1.2))
 		.linkDirectionalParticles((l) => (isFather(l as unknown as PedigreeEdge) ? 0 : 2))
 		.linkDirectionalParticleWidth(1.5)
+		// 表示前に裏で配置を進めておく (warmup)。表示時点で概ね落ち着いており、
+		// 「表示直後にノードがぶつかってプルプル動く」不快感を抑える。
+		.warmupTicks(120)
+		// 総ティック数を抑えて早めに静止させる (いつまでも微振動しない)。
+		.cooldownTicks(80)
 		// タップ = 選択 (中心切り替えはしない)。
 		.onNodeClick((n) => opts.onSelect(n as unknown as HorseNode));
+
+	// 反発力を強める: ノード同士がより離れ、密集した「だんご」をほぐす。
+	const chargeForce = graph.d3Force('charge') as
+		| { strength(s: number): unknown; distanceMax(d: number): unknown }
+		| undefined;
+	chargeForce?.strength(-80); // 既定(-30程度)より強い反発
+	chargeForce?.distanceMax(400); // 反発の及ぶ距離に上限 (遠すぎる相互作用を切って安定させる)
 
 	if (opts.lod) {
 		// 大規模グラフ: ラベルを空 Group にして描画を軽くする。
