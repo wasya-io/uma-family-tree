@@ -203,6 +203,13 @@ export async function createGraph(
 			y: DEFAULT_DIR.y * dist,
 			z: DEFAULT_DIR.z * dist
 		};
+		// カメラの up ベクトル (ロール/傾き) を真上に戻す。
+		// スワイプ操作 (Trackball) で up が傾くため、これを戻さないと
+		// 正面に戻しても画面が斜めのままになる。
+		cam.up.set(0, 1, 0);
+		const controls = graph.controls() as { target?: { set(x: number, y: number, z: number): void }; update?: () => void };
+		controls?.target?.set(0, 0, 0);
+		controls?.update?.();
 		graph.cameraPosition(pos, { x: 0, y: 0, z: 0 }, ms);
 	};
 	// 中心馬 (原点に固定) を注視点にする。カメラ位置は変えず look-at だけ原点へ。
