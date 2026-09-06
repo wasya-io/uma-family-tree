@@ -292,6 +292,15 @@ export async function createGraph(
 				{ x: 0, y: 0, z: 0 },
 				0
 			);
+			// 回転の中心 (controls.target) を中心馬 = 原点に合わせる。
+			// zoomToFit は全ノードの重心を target にするため、中心馬(原点)とずれて
+			// ドラッグ回転の軸が下方に寄ってしまう。明示的に原点へ揃える。
+			const controls = graph.controls() as {
+				target?: { set(x: number, y: number, z: number): void };
+				update?: () => void;
+			};
+			controls?.target?.set(0, 0, 0);
+			controls?.update?.();
 			needsFit = false;
 		}
 	});
