@@ -101,20 +101,18 @@ export async function createGraph(
 	//  - X/Z はフォースで自由に広がる (横方向の有機的レイアウト)。
 	// fy を与えると Y は固定され、fx/fz は未指定なのでシミュレーションで動く。
 	const GEN_Y_GAP = 60; // 1 世代あたりの縦間隔
-	// リンクの目標距離をエッジごとにランダムにばらす (均一な塊を崩して有機的に見せる)。
-	const LINK_DIST_MIN = 45;
-	const LINK_DIST_MAX = 130;
+	// 同世代を完全に同一平面 (Y 固定) に置くと、平面内に押し込められて均一な円盤状の
+	// 塊になる。Y にランダムなゆらぎを足して平面をほぐす (世代分けは大まかに維持)。
+	// ゆらぎは世代間隔より十分小さくして、祖先=上/子孫=下 の分離は保つ。
+	const Y_JITTER = 22;
 	const toGraphData = (g: HorseGraph) => ({
 		nodes: g.nodes.map((n) => {
-			const fy = n.generation * GEN_Y_GAP; // 祖先=上, 子孫=下
 			if (n.generation === 0) return { ...n, fx: 0, fy: 0, fz: 0 };
+			const jitter = (Math.random() * 2 - 1) * Y_JITTER; // -Y_JITTER..+Y_JITTER
+			const fy = n.generation * GEN_Y_GAP + jitter; // 祖先=上, 子孫=下 + ゆらぎ
 			return { ...n, fy };
 		}),
-		// linkDist はエッジ固定の乱数 (毎フレーム変わらないよう生成時に確定)。
-		links: g.edges.map((e) => ({
-			...e,
-			linkDist: LINK_DIST_MIN + Math.random() * (LINK_DIST_MAX - LINK_DIST_MIN)
-		}))
+		links: g.edges.map((e) => ({ ...e }))
 	});
 
 	const isFather = (l: PedigreeEdge) => l.parent === 'father';
@@ -207,13 +205,6 @@ export async function createGraph(
 		.linkDirectionalParticleWidth(1.5)
 		// タップ = 選択 (中心切り替えはしない)。
 		.onNodeClick((n) => opts.onSelect(n as unknown as HorseNode));
-
-	// リンク力の目標距離をエッジ固定の乱数 (linkDist) にする。
-	// 同じ親から出た子が同じ距離で整列するのを防ぎ、均一な塊を崩す。
-	const linkForce = graph.d3Force('link') as
-		| { distance(fn: (l: { linkDist?: number }) => number): unknown }
-		| undefined;
-	linkForce?.distance((l) => l.linkDist ?? 60);
 
 	if (opts.lod) {
 		// 大規模グラフ: ラベルを空 Group にして描画を軽くする。
