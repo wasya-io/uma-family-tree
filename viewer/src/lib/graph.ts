@@ -186,11 +186,24 @@ export async function createGraph(
 		graph.nodeThreeObject(graph.nodeThreeObject());
 	};
 
-	// 既定アングル: 正面やや上から原点 (中心馬) を見下ろす。
-	// Y は世代で ±5×GEN_Y_GAP まで伸びるので、それを収める距離にする。
-	const DEFAULT_CAM = { x: 0, y: 120, z: 620 };
+	// アングルを正面 (やや上) に戻す。ズーム感を出さないため、
+	// 現在のカメラ〜原点の距離を保ったまま向きだけ変える。
+	// 既定の見下ろし角度 (仰角) を保つよう、方向ベクトルを正規化して現在距離を掛ける。
+	const DEFAULT_DIR = (() => {
+		const v = new THREE.Vector3(0, 120, 620); // 正面やや上の方向
+		v.normalize();
+		return v;
+	})();
 	const resetView = (ms = 600) => {
-		graph.cameraPosition(DEFAULT_CAM, { x: 0, y: 0, z: 0 }, ms);
+		const cam = graph.camera();
+		// 現在のカメラ〜原点の距離を維持 (ズームを変えない)。
+		const dist = Math.hypot(cam.position.x, cam.position.y, cam.position.z) || 620;
+		const pos = {
+			x: DEFAULT_DIR.x * dist,
+			y: DEFAULT_DIR.y * dist,
+			z: DEFAULT_DIR.z * dist
+		};
+		graph.cameraPosition(pos, { x: 0, y: 0, z: 0 }, ms);
 	};
 	// 中心馬 (原点に固定) を注視点にする。カメラ位置は変えず look-at だけ原点へ。
 	const aimAtCenter = (ms = 600) => {
