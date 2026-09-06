@@ -9,7 +9,11 @@
 #   ./db/split-and-import.sh local    # ローカル D1 へ (動作確認)
 #
 # 分割は「1 チャンク = N 個の SQL 文 (; 区切り)」単位。各チャンクは 100KB/文 の上限内に
-# 収まる範囲でまとめる。トランザクション (BEGIN/COMMIT) は各チャンクで完結させる。
+# 収まる範囲でまとめる。
+#
+# 注意: Cloudflare D1 (remote) は SQL の BEGIN TRANSACTION / COMMIT / SAVEPOINT を
+# 受け付けない (トランザクションは JS API 側で扱う設計)。よって各チャンクに
+# トランザクション制御文は付けない。wrangler d1 execute --file が内部でまとめて送る。
 
 set -euo pipefail
 
@@ -38,18 +42,16 @@ echo "[1/3] $SRC を ${STMTS_PER_CHUNK} 文ごとに分割..."
 rm -rf "$WORK"
 mkdir -p "$WORK"
 
-# BEGIN TRANSACTION; / COMMIT; の行は各チャンクで付け直すため、元ファイルからは除去する。
-# awk で ; 区切りの文を数え、N 文ごとにファイルを分ける。各チャンクを独立トランザクションで囲む。
+# awk で ; 区切りの文を数え、N 文ごとにファイルを分ける。トランザクション制御文
+# (BEGIN/COMMIT/SAVEPOINT/ROLLBACK/PRAGMA) は remote D1 で弾かれるため、混じっていても除去する。
 awk -v dir="$WORK" -v per="$STMTS_PER_CHUNK" '
   BEGIN { chunk=0; count=0; file=""; opened=0 }
-  # トランザクション制御行はスキップ (チャンク側で付与する)
-  /^BEGIN TRANSACTION;/ { next }
-  /^COMMIT;/            { next }
+  # トランザクション/PRAGMA 制御行はスキップ
+  /^(BEGIN|COMMIT|SAVEPOINT|ROLLBACK|END TRANSACTION|PRAGMA)/ { next }
   {
     if (opened==0) {
       chunk++
       file=sprintf("%s/chunk_%05d.sql", dir, chunk)
-      print "BEGIN TRANSACTION;" > file
       opened=1
     }
     print $0 >> file
@@ -57,7 +59,6 @@ awk -v dir="$WORK" -v per="$STMTS_PER_CHUNK" '
     if ($0 ~ /;[ \t]*$/) {
       count++
       if (count>=per) {
-        print "COMMIT;" >> file
         close(file)
         opened=0
         count=0
@@ -65,10 +66,7 @@ awk -v dir="$WORK" -v per="$STMTS_PER_CHUNK" '
     }
   }
   END {
-    if (opened==1) {
-      print "COMMIT;" >> file
-      close(file)
-    }
+    if (opened==1) close(file)
   }
 ' "$SRC"
 

@@ -9,7 +9,8 @@
 Pages Functions 側の再帰 CTE で動的に行う (viewer/db/schema.sql 参照)。
 
 出力は 1 つの .sql ファイル。`wrangler d1 execute --file=xxx.sql` で投入できる。
-大量 INSERT を高速化するためトランザクションで囲み、複数行 VALUES でまとめる。
+複数行 VALUES でまとめて INSERT 回数を減らす。Cloudflare D1 (remote) は SQL の
+BEGIN TRANSACTION / COMMIT を受け付けないため、トランザクション制御文は出力しない。
 """
 
 from __future__ import annotations
@@ -99,8 +100,10 @@ def write_sql(
         meta_rows.append("(" + ", ".join([_sql_str(k), _sql_str(v)]) + ")")
 
     with open(out_path, "w", encoding="utf-8") as out:
-        out.write("PRAGMA foreign_keys=OFF;\n")
-        out.write("BEGIN TRANSACTION;\n")
+        # 注意: Cloudflare D1 (remote) は SQL 文としての BEGIN TRANSACTION / COMMIT /
+        # SAVEPOINT を受け付けない (トランザクションは JS API 側で扱う設計のため)。
+        # PRAGMA foreign_keys も remote では効かない。よって制御文は出力せず、
+        # DELETE + INSERT のみを並べる。wrangler d1 execute --file が内部でまとめて送る。
         # 再投入を想定して既存データをクリア (スキーマは schema.sql で別途適用)。
         out.write("DELETE FROM edges;\n")
         out.write("DELETE FROM horses;\n")
@@ -112,7 +115,6 @@ def write_sql(
         _batched(keito_rows, "keito_master", "(keito_id, name, color)", out)
         if meta_rows:
             _batched(meta_rows, "meta", "(key, value)", out)
-        out.write("COMMIT;\n")
 
     return {
         "horses": len(horse_rows),
