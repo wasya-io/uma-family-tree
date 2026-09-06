@@ -251,8 +251,8 @@ export async function createGraph(
 			}
 			const span = dmax - dmin;
 
-			// 中心馬ラベルの明滅係数 (0.55..1.0 をゆっくり往復)。
-			const blink = 0.775 + 0.225 * Math.sin(performance.now() / 380);
+			// 中心馬ラベルの明滅係数 (0.25..1.0 を速めに往復。くっきり点滅)。
+			const blink = 0.625 + 0.375 * Math.sin(performance.now() / 170);
 
 			// 2nd pass: opacity を適用。
 			for (let i = 0; i < labels.length; i++) {
