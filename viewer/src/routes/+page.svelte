@@ -137,6 +137,18 @@
 		<div class="toast">{toast}</div>
 	{/if}
 
+	{#if status === 'ready'}
+		<button
+			class="reset"
+			class:with-panel={!!selected}
+			on:click={() => handle?.resetView()}
+			aria-label="アングルを戻す"
+			title="アングルを戻す"
+		>
+			⟳ 正面に戻す
+		</button>
+	{/if}
+
 	<HorseDetail
 		node={selected}
 		centerable={selectedCenterable}
@@ -214,5 +226,24 @@
 		border-radius: 999px;
 		font-size: 0.9rem;
 		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+	}
+	.reset {
+		position: fixed;
+		right: calc(0.9rem + env(safe-area-inset-right));
+		bottom: calc(0.9rem + env(safe-area-inset-bottom));
+		z-index: 15;
+		background: rgba(30, 30, 34, 0.92);
+		color: #eee;
+		border: 1px solid #444;
+		border-radius: 999px;
+		padding: 0.6rem 0.95rem;
+		font-size: 0.9rem;
+		cursor: pointer;
+		box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+		transition: bottom 0.2s ease;
+	}
+	/* 詳細パネル表示中はパネルの上に逃がす */
+	.reset.with-panel {
+		bottom: calc(11rem + env(safe-area-inset-bottom));
 	}
 </style>

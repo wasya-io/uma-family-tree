@@ -39,6 +39,8 @@ export interface GraphHandle {
 	update(graph: HorseGraph): void;
 	/** 選択ノードを設定 (ハイライト用)。null で解除。 */
 	setSelected(id: string | null): void;
+	/** カメラを既定アングル (正面やや上・原点注視) に戻す。 */
+	resetView(): void;
 	/** リサイズ。 */
 	resize(width: number, height: number): void;
 	/** 破棄。 */
@@ -93,12 +95,18 @@ export async function createGraph(
 	};
 	let labels: LabelInfo[] = [];
 
-	// 中心馬 (generation===0) を原点に固定する。fx/fy/fz を与えると
-	// フォースシミュレーションでも動かず、常にグラフの中心に居座る。
+	// レイアウト: Y 座標を世代で固定して「祖先=上 / 子孫=下」に分ける。
+	//  - 中心 (generation=0) は原点。
+	//  - 祖先 (generation>0) は上 (+Y)、子孫 (generation<0) は下 (-Y)。
+	//  - X/Z はフォースで自由に広がる (横方向の有機的レイアウト)。
+	// fy を与えると Y は固定され、fx/fz は未指定なのでシミュレーションで動く。
+	const GEN_Y_GAP = 60; // 1 世代あたりの縦間隔
 	const toGraphData = (g: HorseGraph) => ({
-		nodes: g.nodes.map((n) =>
-			n.generation === 0 ? { ...n, fx: 0, fy: 0, fz: 0 } : { ...n }
-		),
+		nodes: g.nodes.map((n) => {
+			const fy = n.generation * GEN_Y_GAP; // 祖先=上, 子孫=下
+			if (n.generation === 0) return { ...n, fx: 0, fy: 0, fz: 0 };
+			return { ...n, fy };
+		}),
 		links: g.edges.map((e) => ({ ...e }))
 	});
 
@@ -178,6 +186,12 @@ export async function createGraph(
 		graph.nodeThreeObject(graph.nodeThreeObject());
 	};
 
+	// 既定アングル: 正面やや上から原点 (中心馬) を見下ろす。
+	// Y は世代で ±5×GEN_Y_GAP まで伸びるので、それを収める距離にする。
+	const DEFAULT_CAM = { x: 0, y: 120, z: 620 };
+	const resetView = (ms = 600) => {
+		graph.cameraPosition(DEFAULT_CAM, { x: 0, y: 0, z: 0 }, ms);
+	};
 	// 中心馬 (原点に固定) を注視点にする。カメラ位置は変えず look-at だけ原点へ。
 	const aimAtCenter = (ms = 600) => {
 		const cam = graph.camera();
@@ -255,6 +269,9 @@ export async function createGraph(
 		setSelected(id: string | null) {
 			selectedId = id;
 			refresh();
+		},
+		resetView() {
+			resetView(600);
 		},
 		resize(width: number, height: number) {
 			graph.width(width).height(height);
