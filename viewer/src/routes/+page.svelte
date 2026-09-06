@@ -12,6 +12,7 @@
 	let handle: GraphHandle | null = null;
 	let keito: KeitoMaster = {};
 	let currentId = '';
+	let centerName = ''; // 中心馬の名前 (タイトル表示用)
 	let status: 'idle' | 'loading' | 'ready' | 'error' = 'idle';
 	let message = '';
 	let toast = '';
@@ -58,6 +59,9 @@
 			}
 			currentId = id;
 			selected = null;
+			// 中心馬の名前を取り出してタイトルに使う。
+			const centerNode = graph.nodes.find((n) => n.id === graph.center);
+			centerName = centerNode?.name || centerNode?.kana || centerNode?.eng || '';
 			// 間引き情報を反映。
 			truncatedChildren = graph.meta?.truncatedChildren ?? false;
 			totalChildren = graph.meta?.totalChildren ?? 0;
@@ -149,9 +153,16 @@
 	});
 </script>
 
+<svelte:head>
+	<title>{centerName ? `${centerName} の血統図` : '血統図'}</title>
+</svelte:head>
+
 <div class="app">
 	<header>
-		<h1>血統図</h1>
+		<div class="title">
+			<span class="app-name">血統図</span>
+			{#if centerName}<span class="center-name">{centerName}</span>{/if}
+		</div>
 		<HorseSearch onSelect={(id) => goto(`?horse=${encodeURIComponent(id)}`)} />
 	</header>
 
@@ -240,11 +251,25 @@
 	header > :global(*) {
 		pointer-events: auto;
 	}
-	h1 {
-		font-size: 1rem;
-		font-weight: 700;
-		margin: 0;
+	.title {
+		display: flex;
+		flex-direction: column;
+		line-height: 1.15;
+		min-width: 0;
+	}
+	.app-name {
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: #9aa0a6;
 		white-space: nowrap;
+	}
+	.center-name {
+		font-size: 1.05rem;
+		font-weight: 700;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 40vw;
 	}
 	.graph {
 		position: absolute;
