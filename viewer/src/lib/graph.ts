@@ -16,6 +16,23 @@ const OTHER_COLOR = '#999999';
 const SELECT_COLOR = '#ffd54f';
 // 常時ラベルを出す世代のしきい値 (中心から |generation| <= この値)。
 const LABEL_MAX_GEN = 5;
+// ラベルの不透明度は「世代ベース」と「距離ベース」の大きい方を採用する (max)。
+//  - 世代ベース: 中心に近い世代ほど濃い。普段の見やすさの基本。
+//  - 距離ベース: スワイプで回り込んで手前に来たノードは濃くなる。奥の馬を読むため。
+// max にすることで「世代的に薄い奥の馬も、手前に回せば濃くなる」を実現する。
+
+// 世代 (|generation|) → 基本不透明度。中心=0 と 1 世代は最大。
+const GEN_OPACITY: Record<number, number> = { 0: 1, 1: 1, 2: 0.7, 3: 0.45, 4: 0.28, 5: 0.15 };
+const GEN_OPACITY_MIN = 0.15;
+
+// 距離ベースは「絶対距離」ではなく、そのフレームで見えているラベルの
+// 最小〜最大距離で**相対正規化**する。これによりズーム/回り込みの度合いに
+// 関係なく「今いちばん手前のノードは必ず濃い」が保証される。
+const DIST_OPACITY_MIN = 0.1; // 相対的に一番奥のラベルの下限
+
+function genOpacity(generation: number): number {
+	return GEN_OPACITY[Math.abs(generation)] ?? GEN_OPACITY_MIN;
+}
 
 export interface GraphHandle {
 	/** グラフデータを差し替える (中心切り替え時)。 */
@@ -66,6 +83,15 @@ export async function createGraph(
 	let crossed = computeInbreeding(initial.edges);
 	let selectedId: string | null = null;
 
+	// 生成したラベルスプライトを追跡し、フェードを毎フレーム適用する。
+	type LabelInfo = {
+		sprite: InstanceType<typeof THREE.Sprite>;
+		nodeId: string;
+		important: boolean;
+		generation: number;
+	};
+	let labels: LabelInfo[] = [];
+
 	const toGraphData = (g: HorseGraph) => ({
 		nodes: g.nodes.map((n) => ({ ...n })),
 		links: g.edges.map((e) => ({ ...e }))
@@ -108,7 +134,10 @@ export async function createGraph(
 	const labelObject = (n: HorseNode): InstanceType<typeof THREE.Object3D> => {
 		if (Math.abs(n.generation) > LABEL_MAX_GEN) return emptyObject();
 		const name = n.name || n.kana || n.eng || n.id;
-		return makeLabelSprite(name, n.id === selectedId);
+		const important = n.generation === 0 || n.id === selectedId;
+		const sprite = makeLabelSprite(name, n.id === selectedId);
+		labels.push({ sprite, nodeId: n.id, important, generation: n.generation });
+		return sprite;
 	};
 
 	const graph = new ForceGraph3D(container)
@@ -137,14 +166,68 @@ export async function createGraph(
 
 	const refresh = () => {
 		// 色/ラベルの再評価を促す (同じアクセサを再設定すると再描画される)。
+		// ラベルは作り直されるので追跡リストをクリアしてから再構築させる。
+		labels = [];
 		graph.nodeColor(graph.nodeColor());
 		graph.nodeThreeObject(graph.nodeThreeObject());
 	};
+
+	// フェード: 毎フレーム、世代ベースと「相対距離ベース」の max を適用する。
+	// 相対距離ベース = そのフレームの全ラベル距離の min..max で正規化するので、
+	// ズームや回り込みに関係なく「今いちばん手前のラベルは必ず濃い」。
+	const camPos = new THREE.Vector3();
+	const spritePos = new THREE.Vector3();
+	let distBuf = new Float64Array(0);
+	let rafId = 0;
+	const fadeLoop = () => {
+		const cam = graph.camera();
+		if (cam && labels.length) {
+			cam.getWorldPosition(camPos);
+
+			// 1st pass: 非 important ラベルのカメラ距離を集め、min/max を求める。
+			if (distBuf.length < labels.length) distBuf = new Float64Array(labels.length);
+			let dmin = Infinity;
+			let dmax = -Infinity;
+			for (let i = 0; i < labels.length; i++) {
+				const { sprite, important } = labels[i];
+				if (important) {
+					distBuf[i] = -1;
+					continue;
+				}
+				sprite.getWorldPosition(spritePos);
+				const d = camPos.distanceTo(spritePos);
+				distBuf[i] = d;
+				if (d < dmin) dmin = d;
+				if (d > dmax) dmax = d;
+			}
+			const span = dmax - dmin;
+
+			// 2nd pass: opacity を適用。
+			for (let i = 0; i < labels.length; i++) {
+				const { sprite, important, generation } = labels[i];
+				const mat = sprite.material as InstanceType<typeof THREE.SpriteMaterial>;
+				if (important) {
+					mat.opacity = 1;
+					continue;
+				}
+				// 相対距離: 手前(dmin)=1、奥(dmax)=DIST_OPACITY_MIN。
+				let relDist = 1;
+				if (span > 1e-6) {
+					const t = (distBuf[i] - dmin) / span; // 0(手前)..1(奥)
+					relDist = 1 - t * (1 - DIST_OPACITY_MIN);
+				}
+				mat.opacity = Math.max(genOpacity(generation), relDist);
+			}
+		}
+		rafId = requestAnimationFrame(fadeLoop);
+	};
+	rafId = requestAnimationFrame(fadeLoop);
 
 	return {
 		update(g: HorseGraph) {
 			crossed = computeInbreeding(g.edges);
 			selectedId = null;
+			labels = [];
 			graph.graphData(toGraphData(g));
 		},
 		setSelected(id: string | null) {
@@ -155,6 +238,8 @@ export async function createGraph(
 			graph.width(width).height(height);
 		},
 		destroy() {
+			cancelAnimationFrame(rafId);
+			labels = [];
 			graph._destructor?.();
 			container.replaceChildren();
 		}
