@@ -205,7 +205,7 @@ export async function createGraph(
 		.linkDirectionalParticleWidth(1.5)
 		// 表示前に裏で配置を進めておく (warmup)。表示時点で概ね落ち着いており、
 		// 「表示直後にノードがぶつかってプルプル動く」不快感を抑える。
-		.warmupTicks(120)
+		.warmupTicks(300)
 		// 総ティック数を抑えて早めに静止させる (いつまでも微振動しない)。
 		.cooldownTicks(80)
 		// タップ = 選択 (中心切り替えはしない)。
@@ -264,10 +264,31 @@ export async function createGraph(
 	//    時間差でヌルッとズームが動く」不快感をなくす。以降は一切自動調整せず、
 	//    ズームはユーザーに委ねる。
 	//  - グラフごとにフィットするので、大→小のズーム持ち越し問題も起きない。
+	// warmup 中(表示前)に配置が広がりきるので、表示後の数ティックまで待ってから
+	// 一度だけ即フィットする。1ティック目だと配置が広がりきっておらず近すぎるため、
+	// 少し待って(ユーザーには一瞬)から確定させる。
+	let ticksSinceLoad = 0;
 	let needsFit = true;
+	const FIT_AFTER_TICKS = 3;
+	// zoomToFit は全ノードを枠内に収めるため引き気味になる。祖先側が多少見切れても
+	// よいので、fit で決まった距離をさらにこの係数まで寄せる (小さいほど近い)。
+	const ZOOM_IN_FACTOR = 0.6;
 	graph.onEngineTick(() => {
-		if (needsFit) {
-			graph.zoomToFit(0, 60); // アニメーション0=瞬時にフィット (時間差の動きなし)
+		if (!needsFit) return;
+		ticksSinceLoad += 1;
+		if (ticksSinceLoad >= FIT_AFTER_TICKS) {
+			graph.zoomToFit(0, 20); // まず全体にフィット (瞬時)
+			// その距離をさらに寄せる。カメラ位置を原点方向へ ZOOM_IN_FACTOR 倍。
+			const cam = graph.camera();
+			graph.cameraPosition(
+				{
+					x: cam.position.x * ZOOM_IN_FACTOR,
+					y: cam.position.y * ZOOM_IN_FACTOR,
+					z: cam.position.z * ZOOM_IN_FACTOR
+				},
+				{ x: 0, y: 0, z: 0 },
+				0
+			);
 			needsFit = false;
 		}
 	});
@@ -336,6 +357,7 @@ export async function createGraph(
 			selectedId = null;
 			labels = [];
 			needsFit = true; // 新グラフに合わせてズームし直す
+			ticksSinceLoad = 0;
 			graph.graphData(toGraphData(g));
 		},
 		setSelected(id: string | null) {
