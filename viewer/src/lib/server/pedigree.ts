@@ -209,10 +209,64 @@ export async function fetchPedigree(
 		parent: e.parent === 'mother' ? 'mother' : 'father'
 	}));
 
+	// 「代表子孫を辿ったとき実際に到達できる最大の子孫世代」を求める。
+	// 子表示モードの世代スイッチャーを、データが存在する世代までに制限するために使う。
+	//
+	// まず今回のレスポンスから、実際に到達した最深の子孫世代を数える。
+	//   reachedDepth < descDepth なら「これ以上辿っても子孫はいない」ことが確定する
+	//     (要求した世代まで辿りきる前に枝が尽きた) → それが最大深さ。
+	//   reachedDepth == descDepth なら「まだ先がある可能性」があるので、
+	//     MAX_DESC(=3) まで軽いクエリ (深さの最大値のみ) で確認する。
+	const MAX_DESC = 3;
+	let reachedDepth = 0;
+	for (const n of nodes) {
+		if (n.generation < 0 && -n.generation > reachedDepth) reachedDepth = -n.generation;
+	}
+	let maxDescDepth = reachedDepth;
+	if (reachedDepth >= descDepth && descDepth < MAX_DESC) {
+		// 先がある可能性があるので MAX_DESC まで深さだけを辿って確認する。
+		const seedCte = truncate
+			? `seed_children(id) AS (
+          SELECT e.child_id FROM edges e LEFT JOIN horses h ON h.id = e.child_id
+          WHERE e.parent_id = ?1
+          ORDER BY COALESCE(h.earnings,0) DESC, COALESCE(h.wins,0) DESC,
+                   (CASE WHEN EXISTS (SELECT 1 FROM edges e2 WHERE e2.parent_id = e.child_id) THEN 0 ELSE 1 END),
+                   COALESCE(h.birth_year,0) DESC, e.child_id
+          LIMIT ${REPRESENTATIVE_CHILDREN}
+        )`
+			: `seed_children(id) AS (SELECT e.child_id FROM edges e WHERE e.parent_id = ?1)`;
+		const rankedCte = `ranked_edges(parent_id, child_id, rn) AS (
+        SELECT e.parent_id, e.child_id,
+          ROW_NUMBER() OVER (
+            PARTITION BY e.parent_id
+            ORDER BY COALESCE(h.earnings,0) DESC, COALESCE(h.wins,0) DESC,
+                     COALESCE(h.birth_year,0) DESC, e.child_id
+          )
+        FROM edges e LEFT JOIN horses h ON h.id = e.child_id
+      ),`;
+		const depthRow = await db
+			.prepare(
+				`WITH RECURSIVE
+         ${seedCte},
+         ${rankedCte}
+         des(id, depth) AS (
+           SELECT id, 1 FROM seed_children
+           UNION
+           SELECT re.child_id, des.depth + 1
+           FROM ranked_edges re JOIN des ON re.parent_id = des.id
+           WHERE des.depth < ?2 AND re.rn <= ${DESC_FANOUT}
+         )
+         SELECT COALESCE(MAX(depth), 0) AS d FROM des`
+			)
+			.bind(centerId, MAX_DESC)
+			.first<{ d: number }>();
+		maxDescDepth = depthRow?.d ?? reachedDepth;
+	}
+
 	return {
 		center: centerId,
 		nodes,
 		edges,
-		meta: { truncatedChildren: truncate, totalChildren }
+		meta: { truncatedChildren: truncate, totalChildren, maxDescDepth }
 	};
 }

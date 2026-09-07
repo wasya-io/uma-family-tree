@@ -45,6 +45,12 @@ export interface HorseGraph {
 		truncatedChildren: boolean;
 		/** 中心馬の直仔の総数。 */
 		totalChildren: number;
+		/**
+		 * 代表子孫を辿ったときに実際にデータが存在する最大の子孫世代 (0..3)。
+		 * 子表示モードの世代スイッチャーを、この値までしか操作させないために使う。
+		 * 例: 0=子もいない, 1=子はいるが孫がいない, 2=孫までいる。
+		 */
+		maxDescDepth: number;
 	};
 }
 

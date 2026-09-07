@@ -46,6 +46,7 @@
 	// (代表的な子孫=獲得賞金上位 を優先)。OFF は通常の祖先中心表示。
 	let childMode = false;
 	let descGen = 2; // 子孫の表示世代数 (1〜3)
+	let maxDescDepth = 0; // データ上たどれる最大の子孫世代 (0=子もいない, 1=子まで, ...)
 	const CHILD_ANC = 0; // 子モードの祖先代数 (祖先は消す)
 	const NORMAL_ANC = 5; // 通常モードの祖先代数 (サーバ既定と同じ)
 	const NORMAL_DESC = 1; // 通常モードの子孫代数
@@ -144,6 +145,10 @@
 			// 間引き情報を反映。
 			truncatedChildren = graph.meta?.truncatedChildren ?? false;
 			totalChildren = graph.meta?.totalChildren ?? 0;
+			maxDescDepth = graph.meta?.maxDescDepth ?? 0;
+			// 選択中の世代がデータ上たどれる範囲を超えていたら、実際の最大に合わせる
+			// (スイッチャーのハイライトを実表示と一致させる)。最低 1。
+			if (childMode && maxDescDepth >= 1 && descGen > maxDescDepth) descGen = maxDescDepth;
 			showingAll = full;
 			if (!handle) {
 				handle = await createGraph(container, graph, {
@@ -220,8 +225,10 @@
 	}
 
 	// 子孫の表示世代数を変えて再表示する (子モード時のみ)。
+	// データ上たどれない世代 (maxDescDepth 超) は選べない。
 	async function changeDescGen(n: number) {
 		if (!currentId || loadingAll || n === descGen) return;
+		if (n > maxDescDepth) return; // データが無い世代は無視
 		descGen = n;
 		if (childMode) await center(currentId, false);
 	}
@@ -337,17 +344,25 @@
 				{childMode ? '👶 子表示中' : '👶 子を見る'}
 			</button>
 			{#if childMode}
-				<div class="gen-picker" role="group" aria-label="子孫の世代数">
-					{#each [1, 2, 3] as g}
-						<button
-							class="gen"
-							class:sel={descGen === g}
-							on:click={() => changeDescGen(g)}
-							disabled={loadingAll}
-						>
-							{g}代
-						</button>
-					{/each}
+				<div class="gen-wrap">
+					<div class="gen-picker" role="group" aria-label="子孫の世代数">
+						{#each [1, 2, 3] as g}
+							<button
+								class="gen"
+								class:sel={descGen === g}
+								on:click={() => changeDescGen(g)}
+								disabled={loadingAll || g > maxDescDepth}
+								title={g > maxDescDepth ? 'この世代のデータはありません' : `${g}代先まで表示`}
+							>
+								{g}代
+							</button>
+						{/each}
+					</div>
+					{#if maxDescDepth <= 1}
+						<span class="gen-note">これ以上の世代のデータはありません</span>
+					{:else if maxDescDepth < 3}
+						<span class="gen-note">{maxDescDepth}代先までのデータがあります</span>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -741,6 +756,12 @@
 		opacity: 0.6;
 		cursor: default;
 	}
+	.gen-wrap {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 0.25rem;
+	}
 	.gen-picker {
 		display: flex;
 		gap: 0.2rem;
@@ -749,6 +770,13 @@
 		border-radius: 999px;
 		padding: 0.2rem;
 		box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+	}
+	.gen-note {
+		font-size: 0.7rem;
+		color: #b9b9b9;
+		background: rgba(20, 20, 24, 0.8);
+		border-radius: 6px;
+		padding: 0.1rem 0.4rem;
 	}
 	.gen {
 		background: none;
