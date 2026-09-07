@@ -11,6 +11,9 @@
 	let container: HTMLDivElement;
 	let handle: GraphHandle | null = null;
 	let keito: KeitoMaster = {};
+	// 系統マスタの読み込み完了を待つための Promise。グラフ生成 (色分け) 前に必ず解決させ、
+	// 「keito が空のままグラフが作られて全ノードがグレーになる」競合を防ぐ。
+	let keitoReady: Promise<void> | null = null;
 	let currentId = '';
 	let centerName = ''; // 中心馬の名前 (タイトル表示用)
 	let dataDate = ''; // データ基準日 (フッター表示用, YYYY年M月D日)
@@ -59,11 +62,7 @@
 			disclaimerAck = false; // localStorage 不可の環境では毎回ガイドを出す
 		}
 
-		try {
-			keito = await fetchKeitoMaster();
-		} catch (e) {
-			console.warn('系統マスタの取得に失敗:', e);
-		}
+		await ensureKeito();
 		try {
 			const meta = await fetchMeta();
 			dataDate = formatDataDate(meta.data_timestamp);
@@ -82,10 +81,27 @@
 		return `${y}年${m}月${d}日`;
 	}
 
+	// 系統マスタを一度だけ読み込む。複数箇所 (onMount / center) から呼ばれても
+	// 同じ Promise を共有し、二重取得と競合を避ける。
+	function ensureKeito(): Promise<void> {
+		if (!keitoReady) {
+			keitoReady = fetchKeitoMaster()
+				.then((k) => {
+					keito = k;
+				})
+				.catch((e) => {
+					console.warn('系統マスタの取得に失敗:', e);
+				});
+		}
+		return keitoReady;
+	}
+
 	async function center(id: string, full = false) {
 		status = 'loading';
 		message = '';
 		try {
+			// 色分けに使う系統マスタを、グラフ生成より前に必ず用意する。
+			await ensureKeito();
 			const graph = await fetchHorseGraph(id, full);
 			if (graph === null) {
 				// データが無い馬。現在の表示は保ったまま、そっと知らせる。
