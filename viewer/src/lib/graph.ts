@@ -81,6 +81,8 @@ export async function createGraph(
 ): Promise<GraphHandle> {
 	const { default: ForceGraph3D } = await import('3d-force-graph');
 	const THREE = await import('three');
+	// 横方向 (X/Z) を中心軸へ引き寄せる弱いフォース (祖先側の横広がりを抑える)。
+	const { forceX, forceZ } = await import('d3-force-3d');
 
 	let crossed = computeInbreeding(initial.edges);
 	let selectedId: string | null = null;
@@ -220,6 +222,12 @@ export async function createGraph(
 		| undefined;
 	chargeForce?.strength(-80); // 既定(-30程度)より強い反発
 	chargeForce?.distanceMax(400); // 反発の及ぶ距離に上限 (遠すぎる相互作用を切って安定させる)
+
+	// 横方向を中心軸 (X=0, Z=0) へ弱く引き寄せて、ツリー全体を細い縦長に寄せる。
+	// 強すぎると 1 本の線に潰れてだんご化するので、反発とのバランスで弱め (0.06)。
+	// Y は fy で固定しているのでこの力の影響を受けず、世代の上下分離は保たれる。
+	graph.d3Force('centerX', forceX(0).strength(0.06));
+	graph.d3Force('centerZ', forceZ(0).strength(0.06));
 
 	if (opts.lod) {
 		// 大規模グラフ: ラベルを空 Group にして描画を軽くする。
