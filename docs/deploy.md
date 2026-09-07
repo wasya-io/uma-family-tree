@@ -107,30 +107,46 @@ cp output/pedigree.sql ../viewer/db/pedigree.sql
 
 ## 5. 🧑 本番 D1 にスキーマとデータを投入
 
+よく使う操作は `viewer/package.json` の npm スクリプトにしてある
+(`export VOLTA_HOME=... && export PATH=...` を通したうえで実行):
+
+| スクリプト | 内容 |
+|---|---|
+| `npm run db:schema:remote` | 本番 D1 にスキーマ投入 |
+| `npm run db:load:remote` | 本番 D1 にデータ投入 (pedigree.sql) |
+| `npm run db:schema:local` / `db:load:local` | ローカル D1 へ (動作確認用) |
+
 ### 5-1. スキーマ
 
 ```bash
 # cwd = viewer
-./node_modules/.bin/wrangler d1 execute uma-family-tree --remote --file=./db/schema.sql
+npm run db:schema:remote
 ```
 
 ### 5-2. データ
 
 ```bash
-./node_modules/.bin/wrangler d1 execute uma-family-tree --remote --file=./db/pedigree.sql
+npm run db:load:remote
 ```
 
 > ⚠️ **大きな SQL の投入について**
 > `pedigree.sql` は約 27MB / 2,185 文。D1 の制約は「1 SQL 文あたり最大 100KB」で、
-> 本 SQL の最長文は約 28.7KB なので**文単位では上限内**。ただし `wrangler d1 execute --file`
-> は巨大ファイルで不安定という報告がある
+> 本 SQL の最長文は約 28.7KB なので**文単位では上限内**。
+>
+> ⚠️ **トランザクション文は使わない。** Cloudflare D1 (remote) は SQL の
+> `BEGIN TRANSACTION` / `COMMIT` / `SAVEPOINT` を受け付けない
+> (`To execute a transaction, please use ...` エラーになる)。pipeline の emit は
+> これらを出力しないよう修正済み。手書きで SQL を足す場合もトランザクション制御文は入れないこと。
+>
+> `wrangler d1 execute --file` は巨大ファイルで不安定という報告もある
 > ([workers-sdk#4407](https://github.com/cloudflare/workers-sdk/issues/4407),
 > [#9503](https://github.com/cloudflare/workers-sdk/issues/9503))。
-> もし失敗したら **手順 5-3 の分割投入**にフォールバックする。
+> 失敗したら **手順 5-3 の分割投入**にフォールバックする。
 
 ### 5-3. (フォールバック) 分割投入
 
-`pedigree.sql` を小さな塊に分割して順に投入する。分割スクリプトを用意してある:
+`pedigree.sql` を小さな塊 (100 文ごと) に分割して順に投入する。分割スクリプトを用意してある
+(各チャンクにトランザクション制御文は付けない):
 
 ```bash
 # cwd = viewer
@@ -149,57 +165,56 @@ cp output/pedigree.sql ../viewer/db/pedigree.sql
 
 ---
 
-## 6. ビルド
+## 6. ビルド + デプロイ
+
+このプロジェクトは **CLI (`wrangler pages deploy`) デプロイを正とする**。CLI デプロイは
+`wrangler.toml` の `[[d1_databases]]` を読んで D1 バインディングを自動で紐付けるため、
+ダッシュボードでの手動バインディング設定が不要になる (Git 連携より確実)。
 
 ```bash
 # cwd = viewer
 export VOLTA_HOME="$HOME/.volta" && export PATH="$VOLTA_HOME/bin:$PATH"
-npm run check     # 型チェック (0 errors)
-npm run build     # .svelte-kit/cloudflare を出力
+npm run check          # 型チェック (0 errors) ※任意
+npm run build:deploy   # 🧑 ビルド → Pages デプロイを一括実行
 ```
+
+- `npm run build:deploy` = `npm run build`(`.svelte-kit/cloudflare` 出力)+ `npm run deploy`。
+  **ビルド忘れを防ぐため、通常はこれ一つを使う。**
+- ビルドだけ / デプロイだけを個別にやりたい場合は `npm run build` / `npm run deploy`。
+- 初回デプロイ時はプロジェクト作成の確認が入る。production ブランチは `main` を選ぶ。
+
+> Git 連携 (自動デプロイ) は**採用しない**。もし将来使う場合は、ダッシュボードで
+> ルートディレクトリ=`viewer` / フレームワークプリセット=SvelteKit /
+> ビルドコマンド=`npm run build` / 出力ディレクトリ=`.svelte-kit/cloudflare` を設定し、
+> **さらに手順 7 の D1 バインディングをダッシュボードで手動設定する必要がある**。
 
 ---
 
-## 7. 🧑 Pages にデプロイ
+## 7. D1 バインディングの確認
+
+CLI (`wrangler pages deploy`) デプロイなら `wrangler.toml` の `[[d1_databases]]` が
+自動で紐付くため、通常は**追加設定不要**。デプロイ後に API を叩いて確認する
+(`<pages-url>` は払い出された URL):
 
 ```bash
-./node_modules/.bin/wrangler pages deploy .svelte-kit/cloudflare --project-name uma-family-tree
+curl -s "https://<pages-url>/api/meta"                                        # {"data_timestamp":"..."}
+curl -s -o /dev/null -w "%{http_code}\n" "https://<pages-url>/api/horse/H11202369"   # 200
 ```
 
-初回はプロジェクト作成の確認が入る。production ブランチは `main` を選ぶ。
+`/api/meta` が値を返し `/api/horse/...` が 200 なら D1 は正しく繋がっている。
 
-> Pages プロジェクトを Git 連携 (自動デプロイ) にする場合は、Cloudflare ダッシュボードで
-> GitHub リポジトリを接続し、ビルド設定を以下にする:
-> - フレームワークプリセット: SvelteKit
-> - ビルドコマンド: `npm run build`
-> - ビルド出力ディレクトリ: `.svelte-kit/cloudflare`
-> - ルートディレクトリ: `viewer`
-
----
-
-## 8. 🧑 Pages に D1 バインディングを紐付け
-
-`wrangler.toml` の `[[d1_databases]]` は Pages でも読まれるが、Git 連携デプロイの場合は
-ダッシュボード側の設定が必要になることがある。念のため確認する。
-
+もし API が 500 (DB undefined) になる場合のみ、ダッシュボードで手動バインディングする:
 Cloudflare ダッシュボード → Workers & Pages → uma-family-tree → Settings → Functions →
 D1 database bindings:
 
 - Variable name: `DB`
 - D1 database: `uma-family-tree`
 
-を production / preview 両方に設定する。
-
-デプロイ後、API を叩いて確認 (`<pages-url>` はデプロイで払い出された URL):
-
-```bash
-curl -s "https://<pages-url>/api/meta"
-curl -s "https://<pages-url>/api/horse/H11202369" -o /dev/null -w "%{http_code}\n"   # 200
-```
+を production / preview 両方に設定し、再デプロイする。
 
 ---
 
-## 9. 🧑 独自ドメインの割当
+## 8. 🧑 独自ドメインの割当
 
 Cloudflare ダッシュボード → uma-family-tree → Custom domains → Set up a custom domain →
 所有ドメインのサブドメイン (例 `uma.example.com`) を割り当てる。DNS は Cloudflare 管理下なら
@@ -209,7 +224,7 @@ Cloudflare ダッシュボード → uma-family-tree → Custom domains → Set 
 
 ---
 
-## 10. rows_read の実測 (無料枠見積もりの確定)
+## 9. rows_read の実測 (無料枠見積もりの確定)
 
 ローカル D1 は `rows_read` を返さないため、本番でのみ計測できる。代表的な馬を数件開いた後、
 ダッシュボード → uma-family-tree (D1) → Metrics で rows read / rows written を確認する。
@@ -226,8 +241,9 @@ API レスポンスに `Cache-Control` を付与済み (horse=5分, keito=1日) 
 
 | 症状 | 対処 |
 |---|---|
-| `d1 execute --remote --file` が巨大 SQL で失敗 | 手順 5-3 の分割投入に切替 |
-| API が 500 (D1 バインド未設定) | 手順 8 のバインディング設定を確認 |
+| `To execute a transaction, please use ...` | SQL に `BEGIN TRANSACTION`/`COMMIT` が混入。remote D1 は非対応。emit は除去済み。手書き SQL でも入れない |
+| `d1 execute --remote --file` が巨大 SQL で失敗 | 手順 5-3 の分割投入 (`./db/split-and-import.sh remote`) に切替 |
+| API が 500 (D1 バインド未設定) | 手順 7 のバインディング確認。CLI デプロイなら通常自動で紐付く |
 | API が 500 (バインドパラメータ超過) | IN 句に数百 id を渡していないか確認。pedigree.ts は再帰 CTE を JOIN してバインドを 3 個に固定済み |
-| デプロイ後も古い挙動 | Pages は再デプロイが必要。`npm run build` → `pages deploy` を再実行 |
+| デプロイ後も古い挙動 | ビルド忘れの可能性。`npm run build:deploy` で再デプロイ |
 | 独自ドメインが 522/525 | DNS 伝播待ち。数分〜。Cloudflare 管理下ドメインなら通常自動 |

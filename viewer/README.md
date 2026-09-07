@@ -77,11 +77,21 @@ npm run build
 
 本番デプロイの詳細手順は **[`../docs/deploy.md`](../docs/deploy.md)** を参照。要点:
 
+- **CLI (`wrangler pages deploy`) デプロイを正とする**。CLI は `wrangler.toml` の
+  `[[d1_databases]]` を読んで D1 バインディングを自動で紐付けるため確実 (Git 連携は不採用)。
 - `@sveltejs/adapter-cloudflare` で Pages Functions 込みの出力を生成 (`.svelte-kit/cloudflare`)。
-- 血統データは Cloudflare D1 に投入し、Pages に D1 バインディング (`DB`) を紐付ける。
-- `wrangler.toml` の `database_id` を本番 D1 の実 ID に差し替える (初期値はローカル用プレースホルダ)。
-- ビルド `npm run build` → `wrangler pages deploy .svelte-kit/cloudflare`。
-- 巨大 SQL の投入が失敗する場合は `db/split-and-import.sh remote` で分割投入。
+- `wrangler.toml` の `database_id` は本番 D1 の実 ID に設定済み。
+
+主要な npm スクリプト (いずれも `export VOLTA_HOME=... && export PATH=...` を通してから):
+
+| スクリプト | 内容 |
+|---|---|
+| `npm run build:deploy` | ビルド → Pages デプロイを一括 (**ビルド忘れ防止のため通常はこれ**) |
+| `npm run deploy` | 既存ビルド成果物をデプロイのみ |
+| `npm run db:schema:remote` / `db:load:remote` | 本番 D1 にスキーマ / データ投入 |
+| `npm run db:schema:local` / `db:load:local` | ローカル D1 に投入 (動作確認用) |
+
+巨大 SQL の投入が失敗する場合は `./db/split-and-import.sh remote` で分割投入。
 
 ## 未実装 (今後)
 

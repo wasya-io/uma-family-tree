@@ -9,7 +9,13 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-    "wrangler": "wrangler"
+    "wrangler": "wrangler",
+    "deploy": "wrangler pages deploy .svelte-kit/cloudflare --project-name uma-family-tree",
+    "build:deploy": "npm run build && npm run deploy",
+    "db:schema:remote": "wrangler d1 execute uma-family-tree --remote --file=./db/schema.sql",
+    "db:load:remote": "wrangler d1 execute uma-family-tree --remote --file=./db/pedigree.sql",
+    "db:schema:local": "wrangler d1 execute uma-family-tree --local --file=./db/schema.sql",
+    "db:load:local": "wrangler d1 execute uma-family-tree --local --file=./db/pedigree.sql"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240000.0",
