@@ -53,6 +53,8 @@ class Node:
     color: str = ""               # デコード済み毛色ラベル
     birth_year: int | None = None
     keito_id: str = ""            # 系統ID (色分けキー)
+    earnings: int = 0             # 平地本賞金累計 (UM 由来。代表子孫の優先に使う)
+    wins: int = 0                 # 総合1着回数 (UM 由来)
 
 
 @dataclass
@@ -152,6 +154,9 @@ def build_graph(data: ParsedData) -> PedigreeGraph:
             if u.keiro_cd:
                 n.color = codes.decode_keiro(u.keiro_cd)
             n.birth_year = u.birth_year or n.birth_year
+            # 実績 (代表子孫の優先表示に使う)。UM にしか無いので UM から取る。
+            n.earnings = u.earnings
+            n.wins = u.wins
 
     # --- 3. 系統 (KeitoId) をひも付け、父方継承で伝播 ---
     for kt in data.keito.values():

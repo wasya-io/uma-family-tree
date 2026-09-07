@@ -42,6 +42,14 @@
 	let showingAll = false; // 「すべて表示」中か
 	let loadingAll = false;
 
+	// 子表示モード。ON にすると祖先を消し、子孫を descGen 代まで展開する
+	// (代表的な子孫=獲得賞金上位 を優先)。OFF は通常の祖先中心表示。
+	let childMode = false;
+	let descGen = 2; // 子孫の表示世代数 (1〜3)
+	const CHILD_ANC = 0; // 子モードの祖先代数 (祖先は消す)
+	const NORMAL_ANC = 5; // 通常モードの祖先代数 (サーバ既定と同じ)
+	const NORMAL_DESC = 1; // 通常モードの子孫代数
+
 	// URL の ?horse= と現在の中心を同期する。
 	$: urlHorse = $page.url.searchParams.get('horse') ?? '';
 	$: if (urlHorse && urlHorse !== currentId && status !== 'loading') {
@@ -118,7 +126,10 @@
 		try {
 			// 色分けに使う系統マスタを、グラフ生成より前に必ず用意する。
 			await ensureKeito();
-			const graph = await fetchHorseGraph(id, full);
+			// 表示モードで祖先/子孫の代数を切り替える。
+			const anc = childMode ? CHILD_ANC : NORMAL_ANC;
+			const desc = childMode ? descGen : NORMAL_DESC;
+			const graph = await fetchHorseGraph(id, { full, anc, desc });
 			if (graph === null) {
 				// データが無い馬。現在の表示は保ったまま、そっと知らせる。
 				status = handle ? 'ready' : 'idle';
@@ -198,6 +209,21 @@
 	// 中心切り替えは URL 経由 (共有可能)。パネルのボタンからのみ呼ばれる。
 	function centerOn(node: HorseNode) {
 		void goto(`?horse=${encodeURIComponent(node.id)}`, { keepFocus: true, noScroll: true });
+	}
+
+	// 子表示モードの ON/OFF を切り替えて再表示する。
+	async function toggleChildMode() {
+		if (!currentId || loadingAll) return;
+		childMode = !childMode;
+		showingAll = false; // モード切替時は代表表示に戻す
+		await center(currentId, false);
+	}
+
+	// 子孫の表示世代数を変えて再表示する (子モード時のみ)。
+	async function changeDescGen(n: number) {
+		if (!currentId || loadingAll || n === descGen) return;
+		descGen = n;
+		if (childMode) await center(currentId, false);
 	}
 
 	// 操作ガイドを閉じる (タップ / 自動タイマー)。以降は出さないよう記録する。
@@ -300,6 +326,32 @@
 	{/if}
 
 	{#if status === 'ready'}
+		<div class="mode-panel" class:with-panel={!!selected}>
+			<button
+				class="mode-toggle"
+				class:on={childMode}
+				on:click={toggleChildMode}
+				disabled={loadingAll}
+				title={childMode ? '祖先表示に戻す' : '子孫を見る'}
+			>
+				{childMode ? '👶 子表示中' : '👶 子を見る'}
+			</button>
+			{#if childMode}
+				<div class="gen-picker" role="group" aria-label="子孫の世代数">
+					{#each [1, 2, 3] as g}
+						<button
+							class="gen"
+							class:sel={descGen === g}
+							on:click={() => changeDescGen(g)}
+							disabled={loadingAll}
+						>
+							{g}代
+						</button>
+					{/each}
+				</div>
+			{/if}
+		</div>
+
 		<button
 			class="reset"
 			class:with-panel={!!selected}
@@ -652,5 +704,68 @@
 	/* 詳細パネル表示中はパネルの上に逃がす */
 	.reset.with-panel {
 		bottom: calc(11rem + env(safe-area-inset-bottom));
+	}
+
+	/* 子表示モードのトグル + 世代ピッカー (左下、reset と左右対称) */
+	.mode-panel {
+		position: fixed;
+		left: calc(0.9rem + env(safe-area-inset-left));
+		bottom: calc(0.9rem + env(safe-area-inset-bottom));
+		z-index: 15;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		transition: bottom 0.2s ease;
+	}
+	.mode-panel.with-panel {
+		bottom: calc(11rem + env(safe-area-inset-bottom));
+	}
+	.mode-toggle {
+		background: rgba(30, 30, 34, 0.92);
+		color: #eee;
+		border: 1px solid #444;
+		border-radius: 999px;
+		padding: 0.6rem 0.95rem;
+		font-size: 0.9rem;
+		cursor: pointer;
+		box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+		white-space: nowrap;
+	}
+	.mode-toggle.on {
+		background: #f0d98c;
+		color: #2a230c;
+		border-color: #f0d98c;
+		font-weight: 700;
+	}
+	.mode-toggle:disabled {
+		opacity: 0.6;
+		cursor: default;
+	}
+	.gen-picker {
+		display: flex;
+		gap: 0.2rem;
+		background: rgba(30, 30, 34, 0.92);
+		border: 1px solid #444;
+		border-radius: 999px;
+		padding: 0.2rem;
+		box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+	}
+	.gen {
+		background: none;
+		border: none;
+		color: #ccc;
+		border-radius: 999px;
+		padding: 0.4rem 0.6rem;
+		font-size: 0.85rem;
+		cursor: pointer;
+	}
+	.gen.sel {
+		background: #f0d98c;
+		color: #2a230c;
+		font-weight: 700;
+	}
+	.gen:disabled {
+		opacity: 0.6;
+		cursor: default;
 	}
 </style>

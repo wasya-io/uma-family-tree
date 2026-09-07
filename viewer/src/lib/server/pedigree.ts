@@ -10,8 +10,12 @@ export const DEFAULT_ANCESTOR_DEPTH = 5;
 export const DEFAULT_DESCENDANT_DEPTH = 1;
 // 中心馬の直仔がこの数を超えたら「代表的な子」だけに絞る (full 指定で解除)。
 export const CHILD_THRESHOLD = 40;
-// 代表表示で残す子の数。
+// 代表表示で残す中心馬の直仔の数。
 export const REPRESENTATIVE_CHILDREN = 40;
+// 子孫方向を 2 代目以降 (孫・ひ孫) に辿るとき、各親から残す子の数 (賞金上位)。
+// 中心の直仔は REPRESENTATIVE_CHILDREN で別に絞る。孫以降を絞らないと種牡馬で
+// ノードが爆発する (サンデーサイレンス desc=3 で 5000 超) ため、各親ごとに上位のみ辿る。
+export const DESC_FANOUT = 8;
 
 interface HorseRow {
 	id: string;
@@ -23,6 +27,8 @@ interface HorseRow {
 	color: string | null;
 	birth_year: number | null;
 	keito_id: string | null;
+	earnings: number | null;
+	wins: number | null;
 }
 
 interface EdgeRow {
@@ -68,19 +74,29 @@ export async function fetchPedigree(
 		.first<{ c: number }>();
 	const totalChildren = childCountRow?.c ?? 0;
 
-	// 代表的な子に絞るか。
+	// 中心の直仔を代表に絞るか。
 	const truncate = !full && descDepth > 0 && totalChildren > CHILD_THRESHOLD;
+	// 孫以降の枝分かれ (fanout) を各親上位 DESC_FANOUT に絞るか。
+	// full でなく、かつ 2 代以上辿る場合に有効 (孫の爆発を防ぐ)。直仔数に依らない。
+	const limitFanout = !full && descDepth >= 2;
 
 	// 子孫探索の「起点となる子」集合を定める CTE。
 	//  - 通常: 中心の全直仔。
 	//  - 絞る場合: 代表的な子 (子孫を持つ子=edgesに親として登場 を優先、次に生年新しい順) 上位N。
 	// seed_children(id) を des CTE の1代目として使う。
+	// 代表的な子の選抜順:
+	//  1. 獲得賞金 (平地本賞金累計) の多い順 … 「活躍した子孫」の最良の近似。
+	//  2. 勝利数の多い順 … 賞金が同じ (0 など) の中での序列。
+	//  3. 子孫を持つ子を優先 … 賞金・勝利が無い古馬でも、繁殖に上がった子を残す。
+	//  4. 生年の新しい順、id … 最終的なタイブレーク。
 	const seedChildrenCte = truncate
 		? `seed_children(id) AS (
         SELECT e.child_id FROM edges e
         LEFT JOIN horses h ON h.id = e.child_id
         WHERE e.parent_id = ?1
         ORDER BY
+          COALESCE(h.earnings, 0) DESC,
+          COALESCE(h.wins, 0) DESC,
           (CASE WHEN EXISTS (SELECT 1 FROM edges e2 WHERE e2.parent_id = e.child_id) THEN 0 ELSE 1 END),
           COALESCE(h.birth_year, 0) DESC,
           e.child_id
@@ -94,6 +110,32 @@ export async function fetchPedigree(
 	// D1 は 1 クエリのバインドパラメータ上限が小さい (~100) ため、id を並べて IN する
 	// 方式は使わず、再帰 CTE を JOIN して、バインドは centerId + 深さ の 3 個に抑える。
 	// 子孫 (des) は seed_children を1代目にして、そこから descDepth まで辿る。
+	// 孫以降の枝分かれ (fanout) を、各親の子のうち賞金上位 DESC_FANOUT に制限する CTE。
+	//  - 非再帰なので window 関数 ROW_NUMBER を使える。再帰項からはこの rn 付きの
+	//    子集合を JOIN するだけにして「各親から上位N」を実現する。
+	//  - full (絞り込み無し) のときは全エッジを辿る (rn を無視)。
+	// 中心の直仔は seed_children (別途 REPRESENTATIVE_CHILDREN に絞る) が担うので、
+	// ranked_edges は 2 代目以降 (des.depth >= 1 からの展開) にのみ効かせる。
+	const descStep = limitFanout
+		? `SELECT re.child_id, des.depth + 1
+         FROM ranked_edges re JOIN des ON re.parent_id = des.id
+         WHERE des.depth < ?3 AND re.rn <= ${DESC_FANOUT}`
+		: `SELECT e.child_id, des.depth + 1
+         FROM edges e JOIN des ON e.parent_id = des.id
+         WHERE des.depth < ?3`;
+
+	const rankedEdgesCte = limitFanout
+		? `ranked_edges(parent_id, child_id, rn) AS (
+        SELECT e.parent_id, e.child_id,
+          ROW_NUMBER() OVER (
+            PARTITION BY e.parent_id
+            ORDER BY COALESCE(h.earnings, 0) DESC, COALESCE(h.wins, 0) DESC,
+                     COALESCE(h.birth_year, 0) DESC, e.child_id
+          )
+        FROM edges e LEFT JOIN horses h ON h.id = e.child_id
+      ),`
+		: '';
+
 	const idsCte = `WITH RECURSIVE
     anc(id, depth) AS (
       SELECT ?1, 0
@@ -103,12 +145,11 @@ export async function fetchPedigree(
       WHERE anc.depth < ?2
     ),
     ${seedChildrenCte},
+    ${rankedEdgesCte}
     des(id, depth) AS (
       SELECT id, 1 FROM seed_children
       UNION
-      SELECT e.child_id, des.depth + 1
-      FROM edges e JOIN des ON e.parent_id = des.id
-      WHERE des.depth < ?3
+      ${descStep}
     ),
     anc_min(id, d) AS (SELECT id, MIN(depth) FROM anc GROUP BY id),
     des_min(id, d) AS (SELECT id, MIN(depth) FROM des GROUP BY id),
@@ -147,7 +188,9 @@ export async function fetchPedigree(
 		color: h.color ?? '',
 		birthYear: h.birth_year ?? null,
 		keitoId: h.keito_id ?? 'other',
-		generation: h.generation ?? 0
+		generation: h.generation ?? 0,
+		earnings: h.earnings ?? 0,
+		wins: h.wins ?? 0
 	}));
 
 	// エッジ: 両端が ids に含まれるものだけ。

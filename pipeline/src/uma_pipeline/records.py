@@ -43,6 +43,12 @@ def _s(b: bytes, start: int, length: int) -> str:
     return raw.decode(ENCODING, errors="ignore").strip("\u3000 \x00")
 
 
+def _int(v: str) -> int:
+    """数字文字列 (前後空白・ゼロ埋め) を int に。空/非数字は 0。"""
+    v = v.strip()
+    return int(v) if v.isdigit() else 0
+
+
 def _year(b: bytes, start: int, length: int) -> int | None:
     """4桁の年 (または YMD 先頭4桁) を int に。妥当でなければ None。"""
     v = _s(b, start, length)
@@ -67,6 +73,10 @@ class UmaRecord:
     # 父・母の繁殖登録番号 (Ketto3Info の先頭2頭 = 父[0], 母[1])。
     father_hansyoku_num: str = ""
     mother_hansyoku_num: str = ""
+    # 実績 (代表子孫の優先表示に使う)。
+    earnings: int = 0                  # 平地本賞金累計 (単位: 100円。JV-Data の生値)
+    wins: int = 0                      # 総合着回数の1着回数 (中央+地方+海外)
+    starts: int = 0                    # 総合着回数の合計 (出走数の近似)
 
     @classmethod
     def parse(cls, b: bytes) -> "UmaRecord":
@@ -74,6 +84,15 @@ class UmaRecord:
         # i=0 が父、i=1 が母。(実データで父名=213, 母名=257 を確認)
         def ketto3_hansyoku(i: int) -> str:
             return _s(b, 205 + 44 * i, 8)
+
+        # 実績フィールドのオフセット (8桁 UM.dat = 1575バイト固定長で実証済み):
+        #   平地本賞金累計 [1021,9] / 総合着回数 [1075, 3×6=18] / 登録レース数 [1573,3]
+        #   総合着回数 = [1着,2着,3着,4着,5着,着外] の各3桁。
+        #   検証: キタサンブラック=012,002,004,000,000,002 (20戦12勝), 本賞金 018132000。
+        #          ディープインパクト=012,001,000,000,000,001 (14戦12勝), 本賞金 013240000。
+        chaku = [_s(b, 1075 + 3 * i, 3) for i in range(6)]
+        wins = _int(chaku[0])
+        starts = sum(_int(c) for c in chaku)
 
         return cls(
             ketto_num=_s(b, 12, 10),
@@ -85,6 +104,9 @@ class UmaRecord:
             keiro_cd=_s(b, 203, 2),
             father_hansyoku_num=ketto3_hansyoku(0),
             mother_hansyoku_num=ketto3_hansyoku(1),
+            earnings=_int(_s(b, 1021, 9)),
+            wins=wins,
+            starts=starts,
         )
 
 

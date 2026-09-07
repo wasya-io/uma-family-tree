@@ -12,7 +12,9 @@ CREATE TABLE IF NOT EXISTS horses (
   sex         TEXT,               -- デコード済み (牡/牝/セン)
   color       TEXT,               -- デコード済み毛色
   birth_year  INTEGER,
-  keito_id    TEXT                -- 系統ID (色分けキー)
+  keito_id    TEXT,               -- 系統ID (色分けキー)
+  earnings    INTEGER DEFAULT 0,  -- 平地本賞金累計 (代表子孫の優先順に使う)
+  wins        INTEGER DEFAULT 0   -- 総合1着回数
 );
 
 -- 親子エッジ (親 -> 子)

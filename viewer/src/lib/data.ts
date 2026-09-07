@@ -7,8 +7,21 @@ import type { HorseGraph, KeitoMaster, SearchEntry } from './types';
  * 馬の血統サブグラフを取得。存在しない (404) 場合は null を返す (エラーにしない)。
  * full=true で「代表的な子」への絞り込みを解除し全子を取得する (重い)。
  */
-export async function fetchHorseGraph(id: string, full = false): Promise<HorseGraph | null> {
-	const qs = full ? '?full=1' : '';
+export interface FetchGraphOptions {
+	full?: boolean; // 代表的な子への絞り込みを解除 (全子取得。重い)
+	anc?: number; // 祖先何代 (省略時はサーバ既定=5)
+	desc?: number; // 子孫何代 (省略時はサーバ既定=1)
+}
+
+export async function fetchHorseGraph(
+	id: string,
+	opts: FetchGraphOptions = {}
+): Promise<HorseGraph | null> {
+	const params = new URLSearchParams();
+	if (opts.full) params.set('full', '1');
+	if (opts.anc != null) params.set('anc', String(opts.anc));
+	if (opts.desc != null) params.set('desc', String(opts.desc));
+	const qs = params.toString() ? `?${params.toString()}` : '';
 	const res = await fetch(`/api/horse/${encodeURIComponent(id)}${qs}`);
 	if (res.status === 404) return null;
 	if (!res.ok) throw new Error(`データ取得に失敗: /api/horse/${id} (${res.status})`);

@@ -68,6 +68,8 @@ def write_sql(
                     _sql_str(n.color),
                     _sql_int(n.birth_year),
                     _sql_str(n.keito_id or "other"),
+                    _sql_int(n.earnings),
+                    _sql_int(n.wins),
                 ]
             )
             + ")"
@@ -110,7 +112,7 @@ def write_sql(
         out.write("DELETE FROM keito_master;\n")
         out.write("DELETE FROM meta;\n")
         _batched(horse_rows, "horses",
-                 "(id, ketto_num, name, kana, eng, sex, color, birth_year, keito_id)", out)
+                 "(id, ketto_num, name, kana, eng, sex, color, birth_year, keito_id, earnings, wins)", out)
         _batched(edge_rows, "edges", "(parent_id, child_id, parent)", out)
         _batched(keito_rows, "keito_master", "(keito_id, name, color)", out)
         if meta_rows:

@@ -21,6 +21,19 @@
 				.filter(Boolean)
 				.join(' ・ ')
 		: '';
+
+	// 実績 (競走実績がある馬のみ表示)。earnings は 100 円単位なので万円に丸める。
+	$: hasRecord = !!node && (node.wins > 0 || node.earnings > 0);
+	$: earningsOku = node ? (node.earnings * 100) / 1e8 : 0; // 円 → 億円
+
+	// Google 検索を別タブで開く。馬名 + "競走馬" で競走馬の結果に寄せる。
+	function googleSearch() {
+		if (!node) return;
+		const term = (node.name || node.eng || node.kana || '').trim();
+		if (!term) return;
+		const q = encodeURIComponent(`${term} 競走馬`);
+		window.open(`https://www.google.com/search?q=${q}`, '_blank', 'noopener,noreferrer');
+	}
 </script>
 
 {#if node}
@@ -33,6 +46,12 @@
 			{/if}
 			{#if meta}<div class="meta">{meta}</div>{/if}
 			{#if keitoName}<div class="keito">系統: {keitoName}</div>{/if}
+			{#if hasRecord}
+				<div class="record">
+					{#if node.wins > 0}<span>{node.wins}勝</span>{/if}
+					{#if node.earnings > 0}<span>獲得賞金 約{earningsOku.toFixed(1)}億円</span>{/if}
+				</div>
+			{/if}
 		</div>
 
 		<div class="actions">
@@ -45,6 +64,9 @@
 			{:else}
 				<button class="center" disabled>血統データなし</button>
 			{/if}
+			<button class="google" on:click={googleSearch} aria-label="Google で検索">
+				🔍 Google
+			</button>
 		</div>
 	</div>
 {/if}
@@ -94,8 +116,17 @@
 		color: #d0d0d0;
 		font-size: 0.9rem;
 	}
+	.record {
+		margin-top: 0.3rem;
+		display: flex;
+		gap: 0.6rem;
+		color: #f0d98c;
+		font-size: 0.9rem;
+		font-weight: 600;
+	}
 	.actions {
 		display: flex;
+		gap: 0.6rem;
 	}
 	.center {
 		flex: 1;
@@ -112,5 +143,17 @@
 		background: #3a3a3d;
 		color: #888;
 		cursor: default;
+	}
+	.google {
+		flex: 0 0 auto;
+		padding: 0.85rem 1rem;
+		font-size: 0.95rem;
+		font-weight: 600;
+		border: 1px solid #555;
+		border-radius: 10px;
+		background: #2a2a2e;
+		color: #e8e8e8;
+		cursor: pointer;
+		white-space: nowrap;
 	}
 </style>

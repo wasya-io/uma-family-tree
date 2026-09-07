@@ -18,6 +18,10 @@ export interface HorseNode {
 	keitoId: string;
 	/** 中心=0, 祖先=+n, 子孫=-n。 */
 	generation: number;
+	/** 平地本賞金累計 (単位: 100円)。代表子孫の優先や実績表示に使う。競走実績なしは 0。 */
+	earnings: number;
+	/** 総合1着回数。競走実績なしは 0。 */
+	wins: number;
 }
 
 /** 親子エッジ。 */
