@@ -26,6 +26,11 @@
 	let disclaimerAck = true; // SSR/初期は true にしておき onMount で確定 (チラつき防止)
 	let showDisclaimer = false;
 
+	// 操作ガイド。初回のみ画面下部に軽く表示 → 数秒で自動的に消える / タップで閉じる。
+	const GUIDE_KEY = 'uft.guide.seen.v1';
+	let showGuide = false;
+	let guideTimer: ReturnType<typeof setTimeout> | undefined;
+
 	// 選択状態 (詳細パネル用)。中心とは独立。
 	let selected: HorseNode | null = null;
 	let selectedCenterable = false;
@@ -50,16 +55,27 @@
 		// 免責の確認状態を復元。?disclaimer=reset が付いていたらフラグを消して再表示
 		// (開発中や「もう一度きちんと読みたい」とき用。URL からクエリは除去する)。
 		try {
-			const reset = $page.url.searchParams.get('disclaimer') === 'reset';
-			if (reset) {
-				localStorage.removeItem(DISCLAIMER_KEY);
+			const params = $page.url.searchParams;
+			// ?disclaimer=reset / ?guide=reset で確認フラグを消して再表示 (開発/再確認用)。
+			const disclaimerReset = params.get('disclaimer') === 'reset';
+			const guideReset = params.get('guide') === 'reset';
+			if (disclaimerReset) localStorage.removeItem(DISCLAIMER_KEY);
+			if (guideReset) localStorage.removeItem(GUIDE_KEY);
+			if (disclaimerReset || guideReset) {
 				const url = new URL(window.location.href);
 				url.searchParams.delete('disclaimer');
+				url.searchParams.delete('guide');
 				history.replaceState(history.state, '', url);
 			}
 			disclaimerAck = localStorage.getItem(DISCLAIMER_KEY) === '1';
+			// 操作ガイド: 未確認なら表示し、8 秒後に自動で閉じる。
+			if (localStorage.getItem(GUIDE_KEY) !== '1') {
+				showGuide = true;
+				guideTimer = setTimeout(dismissGuide, 8000);
+			}
 		} catch {
 			disclaimerAck = false; // localStorage 不可の環境では毎回ガイドを出す
+			showGuide = true; // 操作ガイドも同様に出す
 		}
 
 		await ensureKeito();
@@ -184,6 +200,17 @@
 		void goto(`?horse=${encodeURIComponent(node.id)}`, { keepFocus: true, noScroll: true });
 	}
 
+	// 操作ガイドを閉じる (タップ / 自動タイマー)。以降は出さないよう記録する。
+	function dismissGuide() {
+		clearTimeout(guideTimer);
+		showGuide = false;
+		try {
+			localStorage.setItem(GUIDE_KEY, '1');
+		} catch {
+			// localStorage 不可でも UI 上は閉じる
+		}
+	}
+
 	function openDisclaimer() {
 		showDisclaimer = true;
 	}
@@ -215,6 +242,7 @@
 		window.addEventListener('resize', onResize);
 		return () => {
 			window.removeEventListener('resize', onResize);
+			clearTimeout(guideTimer);
 			handle?.destroy();
 		};
 	});
@@ -245,6 +273,14 @@
 
 	{#if toast}
 		<div class="toast">{toast}</div>
+	{/if}
+
+	{#if showGuide}
+		<button type="button" class="guide" on:click={dismissGuide}>
+			<span class="guide-row">👆 馬をタップで詳細</span>
+			<span class="guide-row">🖐 1本指で回転 ・ 2本指でズーム</span>
+			<span class="guide-dismiss">タップして閉じる</span>
+		</button>
 	{/if}
 
 	{#if status === 'ready' && truncatedChildren && !showingAll}
@@ -555,6 +591,48 @@
 		border-radius: 999px;
 		font-size: 0.9rem;
 		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+	}
+	/* 初回のみの操作ガイド。画面下部・中央にそっと出す。タップで閉じる。 */
+	.guide {
+		position: fixed;
+		left: 50%;
+		bottom: calc(4.2rem + env(safe-area-inset-bottom));
+		transform: translateX(-50%);
+		z-index: 20;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.2rem;
+		max-width: calc(100vw - 2rem);
+		background: rgba(28, 28, 32, 0.92);
+		color: #e8e8e8;
+		border: 1px solid #3a3a40;
+		border-radius: 14px;
+		padding: 0.7rem 1.1rem;
+		font-size: 0.85rem;
+		line-height: 1.5;
+		text-align: center;
+		cursor: pointer;
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+		animation: guide-in 0.25s ease-out;
+	}
+	.guide-row {
+		white-space: nowrap;
+	}
+	.guide-dismiss {
+		margin-top: 0.35rem;
+		font-size: 0.72rem;
+		color: #8a8a8a;
+	}
+	@keyframes guide-in {
+		from {
+			opacity: 0;
+			transform: translate(-50%, 8px);
+		}
+		to {
+			opacity: 1;
+			transform: translate(-50%, 0);
+		}
 	}
 	.reset {
 		position: fixed;
