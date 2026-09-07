@@ -1,5 +1,12 @@
 # 設計メモ — uma-family-tree
 
+> ⚠️ **この文書は初期設計 (R2 + 静的 JSON 配信) の記録で、一部は現状と異なる。**
+> その後 Cloudflare **D1 (SQLite) + Pages Functions** に移行し、事前展開 JSON ではなく
+> 再帰 CTE による動的取得に変わった。現状のデータモデル・探索方法は
+> **[`data-model.md`](./data-model.md)**、機能は **[`features.md`](./features.md)**、
+> デプロイは **[`deploy.md`](./deploy.md)** を参照。
+> 本文書は設計判断の経緯 (特に §1 JV-Data 構造、§5 実データ確定事項) を残す履歴として維持する。
+
 議論で確定した要件・設計の詳細。steering (`.kiro/steering/`) が「常時参照する原則」なのに対し、
 本ドキュメントは確定仕様・データ形式・未確定事項の記録を目的とする。
 
