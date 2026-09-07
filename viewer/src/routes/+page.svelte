@@ -18,6 +18,11 @@
 	let message = '';
 	let toast = '';
 
+	// 免責事項。初回は未確認 → フッターにガイドを出す。文面はダイアログで表示。
+	const DISCLAIMER_KEY = 'uft.disclaimer.ack.v1';
+	let disclaimerAck = true; // SSR/初期は true にしておき onMount で確定 (チラつき防止)
+	let showDisclaimer = false;
+
 	// 選択状態 (詳細パネル用)。中心とは独立。
 	let selected: HorseNode | null = null;
 	let selectedCenterable = false;
@@ -39,6 +44,21 @@
 	$: selectedIsCenter = !!selected && selected.id === currentId;
 
 	onMount(async () => {
+		// 免責の確認状態を復元。?disclaimer=reset が付いていたらフラグを消して再表示
+		// (開発中や「もう一度きちんと読みたい」とき用。URL からクエリは除去する)。
+		try {
+			const reset = $page.url.searchParams.get('disclaimer') === 'reset';
+			if (reset) {
+				localStorage.removeItem(DISCLAIMER_KEY);
+				const url = new URL(window.location.href);
+				url.searchParams.delete('disclaimer');
+				history.replaceState(history.state, '', url);
+			}
+			disclaimerAck = localStorage.getItem(DISCLAIMER_KEY) === '1';
+		} catch {
+			disclaimerAck = false; // localStorage 不可の環境では毎回ガイドを出す
+		}
+
 		try {
 			keito = await fetchKeitoMaster();
 		} catch (e) {
@@ -148,6 +168,21 @@
 		void goto(`?horse=${encodeURIComponent(node.id)}`, { keepFocus: true, noScroll: true });
 	}
 
+	function openDisclaimer() {
+		showDisclaimer = true;
+	}
+
+	// ダイアログを閉じたら確認済みにする (フッターのガイドは以降出さない)。
+	function closeDisclaimer() {
+		showDisclaimer = false;
+		disclaimerAck = true;
+		try {
+			localStorage.setItem(DISCLAIMER_KEY, '1');
+		} catch {
+			// localStorage 不可でも UI 上は閉じる
+		}
+	}
+
 	let toastTimer: ReturnType<typeof setTimeout> | undefined;
 	function showToast(msg: string) {
 		toast = msg;
@@ -234,10 +269,50 @@
 		onClose={closePanel}
 	/>
 
-	{#if dataDate && !selected}
+	{#if !selected}
 		<footer class="data-footer">
-			本サイトの血統データは {dataDate}時点のものです
+			{#if !disclaimerAck}
+				<button type="button" class="disclaimer-guide" on:click={openDisclaimer}>
+					⚠ 本サイト利用上の注意事項をご確認ください
+				</button>
+			{/if}
+			<div class="footer-line">
+				{#if dataDate}<span>本サイトの血統データは {dataDate}時点のものです</span>{/if}
+				<button type="button" class="disclaimer-link" on:click={openDisclaimer}>免責事項</button>
+			</div>
 		</footer>
+	{/if}
+
+	{#if showDisclaimer}
+		<div
+			class="disclaimer-backdrop"
+			role="button"
+			tabindex="-1"
+			on:click={closeDisclaimer}
+			on:keydown={(e) => e.key === 'Escape' && closeDisclaimer()}
+		></div>
+		<div class="disclaimer-modal" role="dialog" aria-modal="true" aria-label="免責事項・データについてのご注意">
+			<h2>免責事項・データについてのご注意</h2>
+			<p>
+				本サイトは、JRA-VAN Data Lab. で取得した競走馬データをもとに血統を可視化する、個人が運営する非公式のサービスです。JRA・JRA-VAN その他の団体とは一切関係ありません。
+			</p>
+			<ul>
+				<li>
+					<strong>データの正確性を保証しません。</strong>
+					表示している血統は、取得した生データを独自に加工・結合して生成したものです。加工処理の性質上、実際の血統と異なる場合や、欠落・誤りが含まれる場合があります。内容の正確性・完全性・最新性について、運営者はいかなる保証も行いません。
+				</li>
+				<li>
+					<strong>データの基準時点。</strong>
+					表示データは {dataDate || 'データ取得'} 時点で取得したものです。以降の更新は反映されていません。
+				</li>
+				<li>
+					<strong>自己責任でのご利用。</strong>
+					本サイトの情報を利用したこと、または利用できなかったことによって生じたいかなる損害・不利益についても、運営者は一切の責任を負いません。馬券の購入・繁殖・売買その他の判断は、必ず公式の情報源をご確認のうえ、ご自身の責任で行ってください。
+				</li>
+			</ul>
+			<p class="agree-note">本サイトを利用された時点で、上記に同意いただいたものとみなします。</p>
+			<button type="button" class="disclaimer-close" on:click={closeDisclaimer}>確認しました</button>
+		</div>
 	{/if}
 </div>
 
@@ -352,11 +427,105 @@
 		right: 0;
 		bottom: calc(0.4rem + env(safe-area-inset-bottom));
 		z-index: 5;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.35rem;
 		text-align: center;
 		color: #6b6b6b;
 		font-size: 0.7rem;
-		pointer-events: none;
 		padding: 0 0.5rem;
+	}
+	.footer-line {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.6rem;
+		flex-wrap: wrap;
+	}
+	/* 初回ガイド: 少し目立たせる (未確認時のみ表示) */
+	.disclaimer-guide {
+		background: rgba(70, 55, 20, 0.9);
+		color: #f0d98c;
+		border: 1px solid rgba(240, 217, 140, 0.4);
+		border-radius: 999px;
+		padding: 0.4rem 0.9rem;
+		font-size: 0.75rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	/* 常時出す免責リンク (確認済みでもいつでも開ける) */
+	.disclaimer-link {
+		background: none;
+		border: none;
+		color: #8a8a8a;
+		font-size: 0.7rem;
+		text-decoration: underline;
+		cursor: pointer;
+		padding: 0;
+	}
+
+	/* 免責ダイアログ */
+	.disclaimer-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 40;
+		background: rgba(0, 0, 0, 0.6);
+	}
+	.disclaimer-modal {
+		position: fixed;
+		z-index: 41;
+		left: 50%;
+		top: 50%;
+		transform: translate(-50%, -50%);
+		width: min(92vw, 440px);
+		max-height: 82vh;
+		overflow-y: auto;
+		background: #1b1b1f;
+		color: #e8e8e8;
+		border: 1px solid #3a3a40;
+		border-radius: 14px;
+		padding: 1.2rem 1.2rem 1.3rem;
+		box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+	}
+	.disclaimer-modal h2 {
+		margin: 0 0 0.8rem;
+		font-size: 1.05rem;
+		color: #f0d98c;
+	}
+	.disclaimer-modal p {
+		margin: 0.5rem 0;
+		font-size: 0.85rem;
+		line-height: 1.6;
+	}
+	.disclaimer-modal ul {
+		margin: 0.6rem 0;
+		padding-left: 1.1rem;
+	}
+	.disclaimer-modal li {
+		margin: 0.55rem 0;
+		font-size: 0.85rem;
+		line-height: 1.6;
+	}
+	.disclaimer-modal strong {
+		color: #fff;
+	}
+	.disclaimer-modal .agree-note {
+		color: #9a9a9a;
+		font-size: 0.78rem;
+	}
+	.disclaimer-close {
+		display: block;
+		width: 100%;
+		margin-top: 1rem;
+		background: #f0d98c;
+		color: #2a230c;
+		border: none;
+		border-radius: 999px;
+		padding: 0.75rem;
+		font-size: 0.95rem;
+		font-weight: 700;
+		cursor: pointer;
 	}
 	.toast {
 		position: fixed;
