@@ -1,6 +1,10 @@
 name = "uma-family-tree"
 compatibility_date = "2024-11-01"
 pages_build_output_dir = ".svelte-kit/cloudflare"
+# SvelteKit の adapter-cloudflare 出力 (_worker.js) が node:async_hooks 等の Node 組み込みを
+# 参照するため、Node 互換フラグを有効化する。これが無いと本番で Worker が起動時に落ち、
+# 全ルートが 404 になる (ローカル pages dev では緩いため気付きにくい)。
+compatibility_flags = ["nodejs_compat"]
 
 # D1 データベースのバインディング。
 # `wrangler d1 create uma-family-tree` で作成した本番 D1 の実 ID。
