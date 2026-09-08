@@ -110,31 +110,32 @@ export async function fetchPedigree(
 	// D1 は 1 クエリのバインドパラメータ上限が小さい (~100) ため、id を並べて IN する
 	// 方式は使わず、再帰 CTE を JOIN して、バインドは centerId + 深さ の 3 個に抑える。
 	// 子孫 (des) は seed_children を1代目にして、そこから descDepth まで辿る。
-	// 孫以降の枝分かれ (fanout) を、各親の子のうち賞金上位 DESC_FANOUT に制限する CTE。
-	//  - 非再帰なので window 関数 ROW_NUMBER を使える。再帰項からはこの rn 付きの
-	//    子集合を JOIN するだけにして「各親から上位N」を実現する。
-	//  - full (絞り込み無し) のときは全エッジを辿る (rn を無視)。
-	// 中心の直仔は seed_children (別途 REPRESENTATIVE_CHILDREN に絞る) が担うので、
-	// ranked_edges は 2 代目以降 (des.depth >= 1 からの展開) にのみ効かせる。
+	//
+	// 孫以降の枝分かれ (fanout) を各親の子のうち賞金上位 DESC_FANOUT に制限する。
+	// 以前は全エッジに ROW_NUMBER() を振る ranked_edges CTE を使っていたが、これは
+	// edges 全件 (28万行) を毎回スキャンし D1 の rows_read を浪費した (無料枠超過の主因)。
+	// 代わりに「その親の子のうち、自分より上位の兄弟が DESC_FANOUT 未満か」を相関サブクエリ
+	// で判定する。edges(parent_id) インデックスで各親の子だけを引くため、実際に辿った親の
+	// 子しか読まず、読み取り行数が大幅に減る (クエリプランで全 SCAN が消えることを確認済み)。
+	// 中心の直仔は seed_children が別途 REPRESENTATIVE_CHILDREN に絞る。
 	const descStep = limitFanout
-		? `SELECT re.child_id, des.depth + 1
-         FROM ranked_edges re JOIN des ON re.parent_id = des.id
-         WHERE des.depth < ?3 AND re.rn <= ${DESC_FANOUT}`
+		? `SELECT e.child_id, des.depth + 1
+         FROM edges e JOIN des ON e.parent_id = des.id
+         LEFT JOIN horses hc ON hc.id = e.child_id
+         WHERE des.depth < ?3
+           AND (
+             SELECT COUNT(*) FROM edges e2 LEFT JOIN horses h2 ON h2.id = e2.child_id
+             WHERE e2.parent_id = e.parent_id
+               AND ( COALESCE(h2.earnings, 0) > COALESCE(hc.earnings, 0)
+                  OR (COALESCE(h2.earnings, 0) = COALESCE(hc.earnings, 0)
+                      AND COALESCE(h2.wins, 0) > COALESCE(hc.wins, 0))
+                  OR (COALESCE(h2.earnings, 0) = COALESCE(hc.earnings, 0)
+                      AND COALESCE(h2.wins, 0) = COALESCE(hc.wins, 0)
+                      AND e2.child_id < e.child_id) )
+           ) < ${DESC_FANOUT}`
 		: `SELECT e.child_id, des.depth + 1
          FROM edges e JOIN des ON e.parent_id = des.id
          WHERE des.depth < ?3`;
-
-	const rankedEdgesCte = limitFanout
-		? `ranked_edges(parent_id, child_id, rn) AS (
-        SELECT e.parent_id, e.child_id,
-          ROW_NUMBER() OVER (
-            PARTITION BY e.parent_id
-            ORDER BY COALESCE(h.earnings, 0) DESC, COALESCE(h.wins, 0) DESC,
-                     COALESCE(h.birth_year, 0) DESC, e.child_id
-          )
-        FROM edges e LEFT JOIN horses h ON h.id = e.child_id
-      ),`
-		: '';
 
 	const idsCte = `WITH RECURSIVE
     anc(id, depth) AS (
@@ -145,7 +146,6 @@ export async function fetchPedigree(
       WHERE anc.depth < ?2
     ),
     ${seedChildrenCte},
-    ${rankedEdgesCte}
     des(id, depth) AS (
       SELECT id, 1 FROM seed_children
       UNION
@@ -235,26 +235,28 @@ export async function fetchPedigree(
           LIMIT ${REPRESENTATIVE_CHILDREN}
         )`
 			: `seed_children(id) AS (SELECT e.child_id FROM edges e WHERE e.parent_id = ?1)`;
-		const rankedCte = `ranked_edges(parent_id, child_id, rn) AS (
-        SELECT e.parent_id, e.child_id,
-          ROW_NUMBER() OVER (
-            PARTITION BY e.parent_id
-            ORDER BY COALESCE(h.earnings,0) DESC, COALESCE(h.wins,0) DESC,
-                     COALESCE(h.birth_year,0) DESC, e.child_id
-          )
-        FROM edges e LEFT JOIN horses h ON h.id = e.child_id
-      ),`;
+		// fanout は本編と同じ相関サブクエリ方式 (edges 全スキャンを避ける)。深さの最大値だけ取る。
 		const depthRow = await db
 			.prepare(
 				`WITH RECURSIVE
          ${seedCte},
-         ${rankedCte}
          des(id, depth) AS (
            SELECT id, 1 FROM seed_children
            UNION
-           SELECT re.child_id, des.depth + 1
-           FROM ranked_edges re JOIN des ON re.parent_id = des.id
-           WHERE des.depth < ?2 AND re.rn <= ${DESC_FANOUT}
+           SELECT e.child_id, des.depth + 1
+           FROM edges e JOIN des ON e.parent_id = des.id
+           LEFT JOIN horses hc ON hc.id = e.child_id
+           WHERE des.depth < ?2
+             AND (
+               SELECT COUNT(*) FROM edges e2 LEFT JOIN horses h2 ON h2.id = e2.child_id
+               WHERE e2.parent_id = e.parent_id
+                 AND ( COALESCE(h2.earnings,0) > COALESCE(hc.earnings,0)
+                    OR (COALESCE(h2.earnings,0) = COALESCE(hc.earnings,0)
+                        AND COALESCE(h2.wins,0) > COALESCE(hc.wins,0))
+                    OR (COALESCE(h2.earnings,0) = COALESCE(hc.earnings,0)
+                        AND COALESCE(h2.wins,0) = COALESCE(hc.wins,0)
+                        AND e2.child_id < e.child_id) )
+             ) < ${DESC_FANOUT}
          )
          SELECT COALESCE(MAX(depth), 0) AS d FROM des`
 			)
