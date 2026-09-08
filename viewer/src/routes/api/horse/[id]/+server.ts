@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { fetchPedigree, DEFAULT_ANCESTOR_DEPTH, DEFAULT_DESCENDANT_DEPTH } from '$lib/server/pedigree';
+import { CACHE_STATIC, withEdgeCache } from '$lib/server/cache';
 import type { RequestHandler } from './$types';
 
 // GET /api/horse/:id?anc=5&desc=1&full=1
@@ -8,24 +9,25 @@ import type { RequestHandler } from './$types';
 // 子表示モードは anc=0&desc=3 で呼ぶ (祖先なし・子孫3代)。anc/desc は 0..8 にクランプ。
 // 注意: 代表子への絞り込みは中心の直仔にのみ効くため、種牡馬を desc>=2 で辿ると孫以降が
 // 急増しうる (サンデーサイレンス desc=3 で 5000 超)。深さ増加時の総数は呼び出し側で留意。
-export const GET: RequestHandler = async ({ params, url, platform }) => {
+//
+// レスポンスは Cache API でエッジキャッシュする (withEdgeCache)。同一 URL の再アクセスは
+// D1 に到達せずキャッシュから返るため rows_read を大きく減らせる。
+export const GET: RequestHandler = async ({ params, url, platform, request }) => {
 	const db = platform?.env?.DB;
 	if (!db) throw error(500, 'D1 binding (DB) が見つかりません');
 
-	const id = params.id;
-	const anc = clampDepth(url.searchParams.get('anc'), DEFAULT_ANCESTOR_DEPTH);
-	const desc = clampDepth(url.searchParams.get('desc'), DEFAULT_DESCENDANT_DEPTH);
-	const full = url.searchParams.get('full') === '1';
+	return withEdgeCache(request, platform, async () => {
+		const id = params.id;
+		const anc = clampDepth(url.searchParams.get('anc'), DEFAULT_ANCESTOR_DEPTH);
+		const desc = clampDepth(url.searchParams.get('desc'), DEFAULT_DESCENDANT_DEPTH);
+		const full = url.searchParams.get('full') === '1';
 
-	const graph = await fetchPedigree(db, id, { ancDepth: anc, descDepth: desc, full });
-	if (graph === null) throw error(404, 'not found');
+		const graph = await fetchPedigree(db, id, { ancDepth: anc, descDepth: desc, full });
+		// 404 は Response で返す (withEdgeCache は非 ok をキャッシュしない)。
+		// クライアント (fetchHorseGraph) は status===404 を null 扱いする。
+		if (graph === null) return json({ message: 'not found' }, { status: 404 });
 
-	return json(graph, {
-		headers: {
-			// 同一馬の再表示を軽くしつつ、データ/ロジック更新後の陳腐化を短時間に抑える。
-			// (長すぎると仕様変更後も古いレスポンスが残り続ける)
-			'cache-control': 'public, max-age=300'
-		}
+		return json(graph, { headers: { 'cache-control': CACHE_STATIC } });
 	});
 };
 

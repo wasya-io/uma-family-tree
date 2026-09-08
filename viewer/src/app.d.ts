@@ -11,8 +11,8 @@ declare global {
 			env: {
 				DB: D1Database;
 			};
-			// context: { waitUntil(promise: Promise<unknown>): void };
-			// caches: CacheStorage & { default: Cache };
+			context: { waitUntil(promise: Promise<unknown>): void };
+			caches: CacheStorage & { default: Cache };
 		}
 	}
 }
