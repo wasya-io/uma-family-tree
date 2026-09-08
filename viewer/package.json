@@ -10,7 +10,7 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "wrangler": "wrangler",
-    "deploy": "wrangler pages deploy .svelte-kit/cloudflare --project-name uma-family-tree",
+    "deploy": "wrangler pages deploy .svelte-kit/cloudflare --project-name uma-family-tree-app",
     "build:deploy": "npm run build && npm run deploy",
     "db:schema:remote": "wrangler d1 execute uma-family-tree --remote --file=./db/schema.sql",
     "db:load:remote": "wrangler d1 execute uma-family-tree --remote --file=./db/pedigree.sql",

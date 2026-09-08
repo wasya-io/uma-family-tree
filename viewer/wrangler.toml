@@ -1,4 +1,4 @@
-name = "uma-family-tree"
+name = "uma-family-tree-app"
 # adapter-cloudflare の _worker.js は node:async_hooks 等 Node 組み込みを参照する。
 # compatibility_date を 2024-09-23 以降にし nodejs_compat を有効化することで Worker が
 # 本番で起動する (これが無いと起動時に落ちて全ルート 404)。
