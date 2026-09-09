@@ -81,8 +81,8 @@ export async function createGraph(
 ): Promise<GraphHandle> {
 	const { default: ForceGraph3D } = await import('3d-force-graph');
 	const THREE = await import('three');
-	// 横方向 (X/Z) を中心軸へ引き寄せる弱いフォース (祖先側の横広がりを抑える)。
-	const { forceX, forceZ } = await import('d3-force-3d');
+	// 中心寄せフォース (通常モードは横方向の抑制、子モードは全方向の球状まとめに使う)。
+	const { forceX, forceY, forceZ } = await import('d3-force-3d');
 
 	let crossed = computeInbreeding(initial.edges);
 	let selectedId: string | null = null;
@@ -97,25 +97,54 @@ export async function createGraph(
 	};
 	let labels: LabelInfo[] = [];
 
-	// レイアウト: Y 座標を世代で固定して「祖先=上 / 子孫=下」に分ける。
-	//  - 中心 (generation=0) は原点。
-	//  - 祖先 (generation>0) は上 (+Y)、子孫 (generation<0) は下 (-Y)。
-	//  - X/Z はフォースで自由に広がる (横方向の有機的レイアウト)。
-	// fy を与えると Y は固定され、fx/fz は未指定なのでシミュレーションで動く。
-	const GEN_Y_GAP = 60; // 1 世代あたりの縦間隔
-	// 同世代を完全に同一平面 (Y 固定) に置くと、平面内に押し込められて均一な円盤状の
-	// 塊になる。Y にランダムなゆらぎを足して平面をほぐす (世代分けは大まかに維持)。
-	// ゆらぎは世代間隔より十分小さくして、祖先=上/子孫=下 の分離は保つ。
-	const Y_JITTER = 55;
-	const toGraphData = (g: HorseGraph) => ({
-		nodes: g.nodes.map((n) => {
-			if (n.generation === 0) return { ...n, fx: 0, fy: 0, fz: 0 };
-			const jitter = (Math.random() * 2 - 1) * Y_JITTER; // -Y_JITTER..+Y_JITTER
-			const fy = n.generation * GEN_Y_GAP + jitter; // 祖先=上, 子孫=下 + ゆらぎ
-			return { ...n, fy };
-		}),
-		links: g.edges.map((e) => ({ ...e }))
-	});
+	// レイアウトは表示モードで2通り:
+	//  (A) 通常モード (祖先を含む): Y を世代で固定し「祖先=上 / 子孫=下」に分ける。
+	//      中心=原点、祖先=+Y、子孫=−Y。X/Z はフォースで横に広がる。
+	//  (B) 子表示モード (祖先が無い): 祖先方向が無いので上下に分ける意味がない。
+	//      世代ごとの半径で **全方向 (球状)** に広げ、3D 空間を活かす。fy は固定しない。
+	const GEN_Y_GAP = 60; // (A) 1 世代あたりの縦間隔
+	const Y_JITTER = 55; // (A) 同一平面のだんご化をほぐす Y ゆらぎ
+	const GEN_RADIUS = 110; // (B) 1 世代あたりの基準半径
+
+	// 子表示モード = 祖先 (generation>0) が1つも無く、子孫 (generation<0) が存在する。
+	const isChildMode = (g: HorseGraph) =>
+		g.nodes.some((n) => n.generation < 0) && !g.nodes.some((n) => n.generation > 0);
+
+	const toGraphData = (g: HorseGraph) => {
+		const childMode = isChildMode(g);
+		// 各世代のノード数を数える。数が多い世代ほど半径を広げて密集を防ぐ
+		// (特に 1 代のみのときは全ノードが同一半径に集まって重なりやすい)。
+		const genCount = new Map<number, number>();
+		if (childMode) {
+			for (const n of g.nodes) {
+				if (n.generation < 0) genCount.set(n.generation, (genCount.get(n.generation) ?? 0) + 1);
+			}
+		}
+		return {
+			nodes: g.nodes.map((n) => {
+				if (n.generation === 0) return { ...n, fx: 0, fy: 0, fz: 0 };
+				if (childMode) {
+					// 世代の基準半径。その世代のノード数が多いほど広げる (球の表面積 ~ r^2 で
+					// 収容できるよう sqrt でスケール)。fy は固定せず全方向へ散らす。
+					const count = genCount.get(n.generation) ?? 1;
+					const spread = Math.max(1, Math.sqrt(count / 6)); // 6頭で等倍、多いほど広がる
+					const base = -n.generation * GEN_RADIUS * spread;
+					// 球殻に貼り付けず、内側にも散らして体積を使う (0.55..1.0 倍)。
+					const r = base * (0.55 + 0.45 * Math.random());
+					const theta = Math.random() * Math.PI * 2; // 方位角
+					const phi = Math.acos(2 * Math.random() - 1); // 極角 (球面一様分布)
+					const x = r * Math.sin(phi) * Math.cos(theta);
+					const y = r * Math.sin(phi) * Math.sin(theta);
+					const z = r * Math.cos(phi);
+					return { ...n, x, y, z };
+				}
+				const jitter = (Math.random() * 2 - 1) * Y_JITTER; // -Y_JITTER..+Y_JITTER
+				const fy = n.generation * GEN_Y_GAP + jitter; // 祖先=上, 子孫=下 + ゆらぎ
+				return { ...n, fy };
+			}),
+			links: g.edges.map((e) => ({ ...e }))
+		};
+	};
 
 	const isFather = (l: PedigreeEdge) => l.parent === 'father';
 
@@ -216,18 +245,30 @@ export async function createGraph(
 		// タップ = 選択 (中心切り替えはしない)。
 		.onNodeClick((n) => opts.onSelect(n as unknown as HorseNode));
 
-	// 反発力を強める: ノード同士がより離れ、密集した「だんご」をほぐす。
 	const chargeForce = graph.d3Force('charge') as
 		| { strength(s: number): unknown; distanceMax(d: number): unknown }
 		| undefined;
-	chargeForce?.strength(-80); // 既定(-30程度)より強い反発
-	chargeForce?.distanceMax(400); // 反発の及ぶ距離に上限 (遠すぎる相互作用を切って安定させる)
 
-	// 横方向を中心軸 (X=0, Z=0) へ弱く引き寄せて、ツリー全体を細い縦長に寄せる。
-	// 強すぎると 1 本の線に潰れてだんご化するので、反発とのバランスで弱め (0.06)。
-	// Y は fy で固定しているのでこの力の影響を受けず、世代の上下分離は保たれる。
-	graph.d3Force('centerX', forceX(0).strength(0.06));
-	graph.d3Force('centerZ', forceZ(0).strength(0.06));
+	// レイアウト用フォースをモードに応じて設定する。
+	//  (A) 通常モード: 反発 -80、X/Z を中心軸へ弱く引き寄せて縦長ツリーを細く保つ (Y は fy 固定)。
+	//  (B) 子表示モード: 反発を強め (-180) 到達距離も広げてノードを大きく散らす。中心寄せは
+	//      ごく弱く (0.02) して「中心に固まる」のを防ぎつつ、飛散しない程度にまとめる。
+	const applyLayoutForces = (childMode: boolean) => {
+		if (childMode) {
+			chargeForce?.strength(-180);
+			chargeForce?.distanceMax(700);
+			graph.d3Force('centerX', forceX(0).strength(0.02));
+			graph.d3Force('centerY', forceY(0).strength(0.02));
+			graph.d3Force('centerZ', forceZ(0).strength(0.02));
+		} else {
+			chargeForce?.strength(-80);
+			chargeForce?.distanceMax(400);
+			graph.d3Force('centerX', forceX(0).strength(0.06));
+			graph.d3Force('centerY', null); // Y は fy 固定なので中心寄せ不要
+			graph.d3Force('centerZ', forceZ(0).strength(0.06));
+		}
+	};
+	applyLayoutForces(isChildMode(initial));
 
 	if (opts.lod) {
 		// 大規模グラフ: ラベルを空 Group にして描画を軽くする。
@@ -280,22 +321,27 @@ export async function createGraph(
 	// 少し待って(ユーザーには一瞬)から確定させる。
 	let ticksSinceLoad = 0;
 	let needsFit = true;
+	let childModeNow = isChildMode(initial); // フィットのズーム係数をモードで切り替える
 	const FIT_AFTER_TICKS = 3;
 	// zoomToFit は全ノードを枠内に収めるため引き気味になる。祖先側が多少見切れても
 	// よいので、fit で決まった距離をさらにこの係数まで寄せる (小さいほど近い)。
-	const ZOOM_IN_FACTOR = 0.6;
+	//  - 通常モード: 0.6 (祖先が縦に伸びるので寄せてよい)。
+	//  - 子表示モード: 球状に広がり全体を見たいので、ほぼ寄せない (少し引き気味)。
+	const ZOOM_IN_NORMAL = 0.6;
+	const ZOOM_IN_CHILD = 0.95;
 	graph.onEngineTick(() => {
 		if (!needsFit) return;
 		ticksSinceLoad += 1;
 		if (ticksSinceLoad >= FIT_AFTER_TICKS) {
 			graph.zoomToFit(0, 20); // まず全体にフィット (瞬時)
-			// その距離をさらに寄せる。カメラ位置を原点方向へ ZOOM_IN_FACTOR 倍。
+			// その距離をさらに寄せる。カメラ位置を原点方向へ係数倍。
+			const factor = childModeNow ? ZOOM_IN_CHILD : ZOOM_IN_NORMAL;
 			const cam = graph.camera();
 			graph.cameraPosition(
 				{
-					x: cam.position.x * ZOOM_IN_FACTOR,
-					y: cam.position.y * ZOOM_IN_FACTOR,
-					z: cam.position.z * ZOOM_IN_FACTOR
+					x: cam.position.x * factor,
+					y: cam.position.y * factor,
+					z: cam.position.z * factor
 				},
 				{ x: 0, y: 0, z: 0 },
 				0
@@ -378,6 +424,9 @@ export async function createGraph(
 			labels = [];
 			needsFit = true; // 新グラフに合わせてズームし直す
 			ticksSinceLoad = 0;
+			// モード (通常/子表示) が変わることがあるのでレイアウトフォースを再設定する。
+			childModeNow = isChildMode(g);
+			applyLayoutForces(childModeNow);
 			graph.graphData(toGraphData(g));
 		},
 		setSelected(id: string | null) {
