@@ -1,5 +1,10 @@
 # リポジトリ構成 (モノレポ)
 
+> ⚠️ 注: 本ファイルの「データフロー」「役割分担」の一部は **初期の R2 + 静的 JSON 構成**の記述で、
+> 現行は **Cloudflare D1 + Pages Functions** に移行済み。現行のデータモデルは `docs/data-model.md`、
+> 運用・デプロイ・無料枠の注意は `.kiro/steering/operations.md` を参照。
+> (ディレクトリ構成・命名規約の記述は現行でも有効。)
+
 ```
 uma-family-tree/
 ├─ .kiro/
